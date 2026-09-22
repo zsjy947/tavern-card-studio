@@ -1,15 +1,16 @@
 <script setup lang="ts">
-/** 卡库：搜索/标签筛选/分类/批量导出/回收站 */
+/** 卡库：搜索/标签筛选/分类目录/批量导出/回收站/两卡对比入口 */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   NSpace, NInput, NButton, NTag, NEmpty, NSpin, NDropdown, NPopconfirm,
-  NModal, NList, NListItem, useMessage, NIcon, NTabs, NTab, NCascader, NSelect,
+  useMessage, NIcon, NSelect, NSwitch, NTree, type TreeOption,
 } from 'naive-ui';
-import { SearchOutline, AddOutline, TrashOutline, DownloadOutline, CloudUploadOutline, RefreshOutline, ArrowUpOutline } from '@vicons/ionicons5';
+import { SearchOutline, AddOutline, DownloadOutline, CloudUploadOutline, RefreshOutline, GitCompareOutline } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
-import type { CardRow } from '@/services/types';
+import type { CardRow, CategoryRow } from '@/services/types';
 import * as cardService from '@/services/cardService';
+import * as categoryService from '@/services/categoryService';
 import * as backupService from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
 import CardCover from '@/components/CardCover.vue';
@@ -21,10 +22,11 @@ const ws = useWorkspace();
 
 const keyword = ref('');
 const tagFilter = ref<string | null>(null);
+const categoryFilter = ref<string | null>(null); // null=全部, 'none'=未分类
 const showTrash = ref(false);
 const selected = ref<Set<string>>(new Set());
 const importing = ref(false);
-const restoreTarget = ref<CardRow | null>(null);
+const categories = ref<CategoryRow[]>([]);
 
 const allTags = computed(() => {
   const counts = new Map<string, number>();
@@ -32,10 +34,26 @@ const allTags = computed(() => {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => ({ label, value: label }));
 });
 
+const categoryTree = computed<TreeOption[]>(() => [
+  { key: 'all', label: `全部（${ws.cards.filter((c) => !c.deletedAt).length}）` },
+  { key: 'none', label: `未分类（${ws.cards.filter((c) => !c.deletedAt && !c.categoryId).length}）` },
+  ...categories.value.map((cat) => ({
+    key: cat.id,
+    label: `${cat.name}（${ws.cards.filter((c) => !c.deletedAt && c.categoryId === cat.id).length}）`,
+  })),
+]);
+
+function onCategorySelect(keys: string[]) {
+  const k = keys[0];
+  categoryFilter.value = !k || k === 'all' ? null : k === 'none' ? 'none' : k;
+}
+
 const filtered = computed(() => {
   let list = ws.cards;
   if (showTrash.value) list = list.filter((c) => c.deletedAt);
   else list = list.filter((c) => !c.deletedAt);
+  if (categoryFilter.value === 'none') list = list.filter((c) => !c.categoryId);
+  else if (categoryFilter.value) list = list.filter((c) => c.categoryId === categoryFilter.value);
   const kw = keyword.value.trim().toLowerCase();
   if (kw) {
     list = list.filter(
@@ -49,9 +67,56 @@ const filtered = computed(() => {
   return list;
 });
 
-onMounted(async () => {
+async function refresh() {
   await ws.refreshCards(true);
-});
+  categories.value = await categoryService.listCategories();
+}
+
+onMounted(refresh);
+
+async function addCategory() {
+  const name = window.prompt('新分类名称：');
+  if (!name?.trim()) return;
+  try {
+    await categoryService.createCategory(name.trim());
+    await refresh();
+  } catch (e) {
+    message.error((e as Error).message);
+  }
+}
+
+async function removeCategory() {
+  if (!categoryFilter.value || categoryFilter.value === 'none') return;
+  const cat = categories.value.find((c) => c.id === categoryFilter.value);
+  if (!cat) return;
+  if (!window.confirm(`删除分类「${cat.name}」？其中卡片将回到未分类（不会删卡）`)) return;
+  const r = await categoryService.deleteCategory(cat.id);
+  categoryFilter.value = null;
+  await refresh();
+  message.success(`分类已删除，${r.movedCards} 张卡回到未分类`);
+}
+
+function cardOps(c: CardRow) {
+  const catOptions: { key: string; label: string }[] = [
+    { key: 'cat:none', label: '移到未分类' },
+    ...categories.value.map((cat) => ({ key: `cat:${cat.id}`, label: `移到「${cat.name}」` })),
+  ];
+  return [
+    { key: 'select', label: selected.value.has(c.id) ? '取消选择' : '选择' },
+    ...(categories.value.length ? catOptions : []),
+    { key: 'edit', label: '在编辑器中打开' },
+  ];
+}
+
+async function onCardOp(key: string, c: CardRow) {
+  if (key === 'select') toggleSelect(c.id);
+  else if (key === 'edit') router.push(`/editor/${c.id}`);
+  else if (key.startsWith('cat:')) {
+    await categoryService.assignCategory(c.id, key === 'cat:none' ? null : key.slice(4));
+    await refresh();
+    message.success('已归类');
+  }
+}
 
 async function importCards() {
   const files = await pickPngFiles(true).then((f) => (f.length ? f : pickJsonFiles(true)));
@@ -73,14 +138,14 @@ async function importCards() {
     }
   }
   importing.value = false;
-  await ws.refreshCards(true);
+  await refresh();
   if (ok) message.success(`导入 ${ok} 张卡${errors.length ? `，${errors.length} 张失败` : ''}`);
   if (errors.length) errors.slice(0, 3).forEach((e) => message.error(e));
 }
 
 async function newCard() {
   const row = await cardService.createCard('新角色');
-  await ws.refreshCards(true);
+  await refresh();
   router.push(`/editor/${row.id}`);
 }
 
@@ -91,10 +156,19 @@ function toggleSelect(id: string) {
   selected.value = next;
 }
 
+function compareSelected() {
+  const ids = [...selected.value];
+  if (ids.length !== 2) {
+    message.warning('先选择恰好两张卡（卡片操作菜单 → 选择）');
+    return;
+  }
+  router.push({ path: '/compare', query: { a: ids[0], b: ids[1] } });
+}
+
 async function exportSelected(kind: 'json' | 'png') {
   const cards = ws.cards.filter((c) => selected.value.has(c.id));
   if (!cards.length) {
-    message.warning('先点选卡片（单击卡片右上角选择）');
+    message.warning('先选择卡片（卡片操作菜单 → 选择）');
     return;
   }
   if (cards.length === 1 && kind === 'json') {
@@ -117,95 +191,128 @@ async function exportSelected(kind: 'json' | 'png') {
 
 async function trash(id: string) {
   await cardService.trashCard(id);
-  await ws.refreshCards(true);
+  await refresh();
   message.success('已移入回收站');
 }
 
 async function hardDelete(c: CardRow) {
   await cardService.hardDeleteCard(c.id);
-  await ws.refreshCards(true);
+  await refresh();
   message.success('已彻底删除');
 }
 
 async function restore(c: CardRow) {
   await cardService.restoreCard(c.id);
-  await ws.refreshCards(true);
+  await refresh();
   message.success('已恢复');
 }
 </script>
 
 <template>
-  <div>
-    <NSpace align="center" :size="10" style="margin-bottom: 14px" wrap>
-      <NInput v-model:value="keyword" placeholder="搜索卡名 / 标签 / 描述…" clearable style="width: 240px">
-        <template #prefix><NIcon><SearchOutline /></NIcon></template>
-      </NInput>
-      <NSelect v-model:value="tagFilter" :options="allTags" placeholder="标签筛选" clearable style="width: 150px" size="small" />
-      <NButton size="small" secondary @click="importCards" :loading="importing">
-        <template #icon><NIcon><CloudUploadOutline /></NIcon></template>导入 PNG / JSON
-      </NButton>
-      <NButton size="small" secondary @click="exportSelected('json')">
-        <template #icon><NIcon><DownloadOutline /></NIcon></template>导出所选 JSON
-      </NButton>
-      <NButton size="small" secondary @click="exportSelected('png')">导出所选 PNG</NButton>
-      <NButton size="small" quaternary @click="ws.refreshCards(true)">
-        <template #icon><NIcon><RefreshOutline /></NIcon></template>
-      </NButton>
-      <div style="flex:1"></div>
-      <NSwitch v-model:value="showTrash" size="small">
-        <template #checked>回收站</template>
-        <template #unchecked>卡库</template>
-      </NSwitch>
-      <NButton type="primary" size="small" @click="newCard">
-        <template #icon><NIcon><AddOutline /></NIcon></template>新建角色卡
-      </NButton>
-    </NSpace>
+  <div class="lib-layout">
+    <!-- 左侧分类树 -->
+    <div class="lib-side">
+      <div class="lib-side-head">
+        <span style="font-weight: 700; font-size: 13px">分类</span>
+        <NSpace :size="2">
+          <NButton text size="tiny" @click="addCategory">＋新建</NButton>
+          <NButton v-if="categoryFilter && categoryFilter !== 'none'" text size="tiny" type="error" @click="removeCategory">删除</NButton>
+        </NSpace>
+      </div>
+      <NTree
+        block-line expand-on-click
+        :data="categoryTree"
+        :selected-keys="categoryFilter ? [categoryFilter] : ['all']"
+        @update:selected-keys="onCategorySelect"
+      />
+    </div>
 
-    <NSpin :show="ws.cardsLoading">
-      <NEmpty v-if="!filtered.length" description="没有卡片，导入或新建一张开始" style="padding: 60px 0" />
-      <div v-else class="lib-grid">
-        <div v-for="c in filtered" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
-          <div class="lib-card-main" @click="router.push(`/editor/${c.id}`)">
-            <CardCover :src="c.cover" :name="c.name" :size="56" />
-            <div class="lib-card-info">
-              <div class="lib-card-name">{{ c.name }}</div>
-              <div class="lib-card-meta">
-                <NTag size="tiny" :bordered="false">{{ c.spec === 'chara_card_v3' ? 'V3' : c.spec === 'chara_card_v2' ? 'V2' : 'V1' }}</NTag>
-                <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.total }} tk</span>
-                <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
-              </div>
-              <div class="lib-card-tags">
-                <NTag v-for="t in c.tags.slice(0, 4)" :key="t" size="tiny" round :bordered="false" type="info">{{ t }}</NTag>
-                <NTag v-if="c.tags.length > 4" size="tiny" round :bordered="false">+{{ c.tags.length - 4 }}</NTag>
+    <!-- 右侧卡列表 -->
+    <div class="lib-main">
+      <NSpace align="center" :size="10" style="margin-bottom: 14px" wrap>
+        <NInput v-model:value="keyword" placeholder="搜索卡名 / 标签 / 描述…" clearable style="width: 240px">
+          <template #prefix><NIcon><SearchOutline /></NIcon></template>
+        </NInput>
+        <NSelect v-model:value="tagFilter" :options="allTags" placeholder="标签筛选" clearable style="width: 150px" size="small" />
+        <NButton size="small" secondary @click="importCards" :loading="importing">
+          <template #icon><NIcon><CloudUploadOutline /></NIcon></template>导入 PNG / JSON
+        </NButton>
+        <NButton size="small" secondary @click="exportSelected('json')">
+          <template #icon><NIcon><DownloadOutline /></NIcon></template>导出 JSON
+        </NButton>
+        <NButton size="small" secondary @click="exportSelected('png')">导出 PNG</NButton>
+        <NButton size="small" tertiary @click="compareSelected">
+          <template #icon><NIcon><GitCompareOutline /></NIcon></template>对比
+        </NButton>
+        <NButton size="small" quaternary @click="refresh">
+          <template #icon><NIcon><RefreshOutline /></NIcon></template>
+        </NButton>
+        <div style="flex:1"></div>
+        <NSwitch v-model:value="showTrash" size="small">
+          <template #checked>回收站</template>
+          <template #unchecked>卡库</template>
+        </NSwitch>
+        <NButton type="primary" size="small" @click="newCard">
+          <template #icon><NIcon><AddOutline /></NIcon></template>新建角色卡
+        </NButton>
+      </NSpace>
+
+      <NSpin :show="ws.cardsLoading">
+        <NEmpty v-if="!filtered.length" description="没有卡片，导入或新建一张开始" style="padding: 60px 0" />
+        <div v-else class="lib-grid">
+          <div v-for="c in filtered" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
+            <div class="lib-card-main" @click="router.push(`/editor/${c.id}`)">
+              <CardCover :src="c.cover" :name="c.name" :size="56" />
+              <div class="lib-card-info">
+                <div class="lib-card-name">{{ c.name }}</div>
+                <div class="lib-card-meta">
+                  <NTag size="small" :bordered="false">{{ c.spec === 'chara_card_v3' ? 'V3' : c.spec === 'chara_card_v2' ? 'V2' : 'V1' }}</NTag>
+                  <NTag v-if="c.categoryId && categories.find(x => x.id === c.categoryId)" size="small" round :bordered="false" type="warning">
+                    {{ categories.find(x => x.id === c.categoryId)!.name }}
+                  </NTag>
+                  <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.total }} tk</span>
+                  <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
+                </div>
+                <div class="lib-card-tags">
+                  <NTag v-for="t in c.tags.slice(0, 4)" :key="t" size="small" round :bordered="false" type="info">{{ t }}</NTag>
+                  <NTag v-if="c.tags.length > 4" size="small" round :bordered="false">+{{ c.tags.length - 4 }}</NTag>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="lib-card-ops">
-            <NButton text size="tiny" @click.stop="toggleSelect(c.id)">{{ selected.has(c.id) ? '取消选择' : '选择' }}</NButton>
-            <template v-if="!showTrash">
-              <NPopconfirm @positive-click="trash(c.id)">
-                <template #trigger><NButton text size="tiny" type="error">删除</NButton></template>
-                移入回收站？
-              </NPopconfirm>
-            </template>
-            <template v-else>
-              <NButton text size="tiny" type="success" @click.stop="restore(c)">恢复</NButton>
-              <NPopconfirm @positive-click="hardDelete(c)">
-                <template #trigger><NButton text size="tiny" type="error">彻底删除</NButton></template>
-                不可恢复，确认？
-              </NPopconfirm>
-            </template>
+            <div class="lib-card-ops">
+              <NDropdown :options="cardOps(c)" @select="(key: string) => onCardOp(key, c)">
+                <NButton text size="tiny">操作 ▾</NButton>
+              </NDropdown>
+              <template v-if="!showTrash">
+                <NPopconfirm @positive-click="trash(c.id)">
+                  <template #trigger><NButton text size="tiny" type="error">删除</NButton></template>
+                  移入回收站？
+                </NPopconfirm>
+              </template>
+              <template v-else>
+                <NButton text size="tiny" type="success" @click.stop="restore(c)">恢复</NButton>
+                <NPopconfirm @positive-click="hardDelete(c)">
+                  <template #trigger><NButton text size="tiny" type="error">彻底删除</NButton></template>
+                  不可恢复，确认？
+                </NPopconfirm>
+              </template>
+            </div>
           </div>
         </div>
-      </div>
-    </NSpin>
+      </NSpin>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.lib-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;
+.lib-layout { display: flex; gap: 16px; align-items: flex-start; }
+.lib-side {
+  flex: none; width: 190px; border: 1px solid rgba(255,255,255,.07); border-radius: 12px;
+  padding: 10px; background: rgba(255,255,255,.02); position: sticky; top: 0;
 }
+.lib-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.lib-main { flex: 1; min-width: 0; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .lib-card {
   background: rgba(255, 255, 255, 0.028);
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -217,9 +324,9 @@ async function restore(c: CardRow) {
 .lib-card-main { display: flex; gap: 12px; cursor: pointer; }
 .lib-card-info { flex: 1; min-width: 0; }
 .lib-card-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lib-card-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; opacity: .75; margin-bottom: 6px; }
+.lib-card-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .8; margin-bottom: 6px; }
 .lib-card-tk { font-variant-numeric: tabular-nums; }
 .lib-card-date { margin-left: auto; }
 .lib-card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-.lib-card-ops { display: flex; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,.06); }
+.lib-card-ops { display: flex; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,.06); align-items: center; }
 </style>

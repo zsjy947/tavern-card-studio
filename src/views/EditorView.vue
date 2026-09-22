@@ -1,18 +1,19 @@
 <script setup lang="ts">
-/** 卡片编辑器：Tab 式全字段编辑 + 保存 + 版本管理 + 规格转换 */
-import { computed, onMounted, ref } from 'vue';
+/** 卡片编辑器：Tab 式全字段编辑 + 保存 + 版本管理 + 规格转换 + 本地撤销栈 */
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NSpace, NButton, NTabs, NTabPane, useMessage, NIcon, NPopconfirm, NModal,
   NTag, NSwitch, NTimeline, NTimelineItem, NInput, NEmpty, NSpin, NSelect,
 } from 'naive-ui';
-import { SaveOutline, ArrowBackOutline, GitBranchOutline, SparklesOutline } from '@vicons/ionicons5';
+import { SaveOutline, ArrowBackOutline, GitBranchOutline, SparklesOutline, ArrowUndoOutline, ArrowRedoOutline } from '@vicons/ionicons5';
 import type { AnyCard } from '@/core/card';
 import { convertSpec, cardSpec } from '@/core/card';
 import * as cardService from '@/services/cardService';
 import { useWorkspace } from '@/stores/workspace';
 import type { CardVersionRow } from '@/services/types';
 import { countTokens } from '@/core/stats/tokens';
+import { useCardHistory } from '@/composables/useCardHistory';
 import BasicTab from './editor/BasicTab.vue';
 import GreetingsTab from './editor/GreetingsTab.vue';
 import WorldbookTab from './editor/WorldbookTab.vue';
@@ -33,8 +34,34 @@ const showVersions = ref(false);
 const versions = ref<CardVersionRow[]>([]);
 const versionNote = ref('');
 
+/* ---------------- 本地撤销/重做（优化文档 P0-2） ---------------- */
+
+const history = useCardHistory<AnyCard>({ spec: 'chara_card_v3', spec_version: '3.0', data: { name: '' } as never });
+
 function markDirty() {
   dirty.value = true;
+  if (card.value) history.commit(card.value);
+}
+
+function applyRestored(v: AnyCard) {
+  card.value = v;
+  dirty.value = true;
+}
+
+function undo() {
+  const v = history.undo();
+  if (v) {
+    applyRestored(v);
+    message.info('已撤销');
+  }
+}
+
+function redo() {
+  const v = history.redo();
+  if (v) {
+    applyRestored(v);
+    message.info('已重做');
+  }
 }
 
 onMounted(async () => {
@@ -45,7 +72,21 @@ onMounted(async () => {
     return;
   }
   card.value = JSON.parse(JSON.stringify(row.card)) as AnyCard;
+  history.reset(card.value);
+  history.bindHotkeys(window, applyRestored);
 });
+
+onBeforeUnmount(() => history.unbindHotkeys());
+
+// Ctrl+S 保存
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (dirty.value) void save();
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 async function save() {
   if (!card.value) return;
@@ -54,6 +95,7 @@ async function save() {
     await cardService.saveCard(id.value, card.value, { note: versionNote.value || undefined, keepCover: true });
     dirty.value = false;
     versionNote.value = '';
+    if (card.value) history.reset(card.value);
     await ws.refreshCards(true);
     message.success('已保存（自动存版本快照）');
   } catch (e) {
@@ -127,6 +169,12 @@ async function rollback(v: CardVersionRow) {
           size="tiny" style="width: 90px"
           @update:value="switchSpec"
         />
+        <NButton size="small" secondary :disabled="!history.canUndo.value" @click="undo">
+          <template #icon><NIcon><UndoOutline /></NIcon></template>撤销
+        </NButton>
+        <NButton size="small" secondary :disabled="!history.canRedo.value" @click="redo">
+          <template #icon><NIcon><RedoOutline /></NIcon></template>重做
+        </NButton>
         <NButton size="small" secondary @click="openVersions">
           <template #icon><NIcon><GitBranchOutline /></NIcon></template>版本
         </NButton>

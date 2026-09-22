@@ -1,8 +1,13 @@
 /**
  * AI 服务：渠道管理、统一调用入口（自动记用量）、按字段生成/优化/翻译、诊断 skill 执行。
+ *
+ * dev 分支增强（优化文档 P0-4）：
+ * - 并发限制：所有 chat 调用经信号量排队（默认 2，可配）
+ * - 全局系统提示词：渠道级 globalSystemPrompt 自动前插 system 消息
  */
 import { getStore, genId } from '@/db';
 import { LlmClient, extractJson, type ChannelConfig, type ChatMessage } from '@/core/llm';
+import { Semaphore } from '@/core/llm/semaphore';
 import type { AiChannelRow, AiUsageLogRow } from './types';
 
 /* ---------------- 渠道 ---------------- */
@@ -47,6 +52,30 @@ export async function getActiveClient(kind: 'text' | 'image'): Promise<{ client:
   return { client: new LlmClient(config), channel: active };
 }
 
+/* ---------------- 并发限制 ---------------- */
+
+const semaphores = new Map<string, Semaphore>();
+
+export function getSemaphore(limit = 2): Semaphore {
+  let s = semaphores.get('text');
+  if (!s || s.limit !== limit) {
+    s = new Semaphore(limit);
+    semaphores.set('text', s);
+  }
+  return s;
+}
+
+/** 渠道全局系统提示词（自动前插） */
+function withGlobalSystem(messages: ChatMessage[], channel: AiChannelRow): ChatMessage[] {
+  const gsp = (channel as AiChannelRow & { globalSystemPrompt?: string }).globalSystemPrompt?.trim();
+  if (!gsp) return messages;
+  const hasSystem = messages.some((m) => m.role === 'system');
+  if (hasSystem) {
+    return messages.map((m, i) => (m.role === 'system' && i === 0 ? { role: 'system' as const, content: `${gsp}\n\n${m.content}` } : m));
+  }
+  return [{ role: 'system', content: gsp }, ...messages];
+}
+
 /* ---------------- 用量记录 ---------------- */
 
 export async function logUsage(channel: AiChannelRow, feature: string, r: { promptTokens: number; completionTokens: number; ms: number }): Promise<void> {
@@ -79,35 +108,48 @@ export interface FieldAiOptions {
   onDelta?: (delta: string, full: string) => void;
   signal?: AbortSignal;
   temperature?: number;
+  /** 跳过并发限制（内部续写等） */
+  bypassQueue?: boolean;
 }
 
 export async function runFieldAi(opts: FieldAiOptions): Promise<string> {
   const { client, channel } = await getActiveClient('text');
-  const messages: ChatMessage[] = [
-    { role: 'system', content: opts.systemPrompt },
-    { role: 'user', content: opts.userPrompt },
-  ];
-  const result = await client.chat({
-    messages,
-    onDelta: opts.onDelta,
-    signal: opts.signal,
-    temperature: opts.temperature,
-    maxContinues: 2,
-    ...(opts.jsonSchemaHint
-      ? {}
-      : {}),
-  });
+  const messages: ChatMessage[] = withGlobalSystem(
+    [
+      { role: 'system', content: opts.systemPrompt },
+      { role: 'user', content: opts.userPrompt },
+    ],
+    channel,
+  );
+  const limit = (channel as AiChannelRow & { concurrencyLimit?: number }).concurrencyLimit ?? 2;
+  const sem = getSemaphore(limit);
+  const exec = () =>
+    client.chat({
+      messages,
+      onDelta: opts.onDelta,
+      signal: opts.signal,
+      temperature: opts.temperature,
+      maxContinues: 2,
+    });
+  const result = opts.bypassQueue ? await exec() : await sem.run(exec);
   await logUsage(channel, opts.feature, result);
   return result.text;
 }
 
 export async function runFieldAiJson<T>(opts: FieldAiOptions): Promise<T> {
   const { client, channel } = await getActiveClient('text');
-  const messages: ChatMessage[] = [
-    { role: 'system', content: opts.systemPrompt },
-    { role: 'user', content: opts.jsonSchemaHint ? `${opts.userPrompt}\n\n只输出 JSON，结构：${opts.jsonSchemaHint}` : opts.userPrompt },
-  ];
-  const result = await client.chat({ messages, onDelta: opts.onDelta, signal: opts.signal, maxContinues: 2, jsonMode: true });
+  const messages: ChatMessage[] = withGlobalSystem(
+    [
+      { role: 'system', content: opts.systemPrompt },
+      { role: 'user', content: opts.jsonSchemaHint ? `${opts.userPrompt}\n\n只输出 JSON，结构：${opts.jsonSchemaHint}` : opts.userPrompt },
+    ],
+    channel,
+  );
+  const limit = (channel as AiChannelRow & { concurrencyLimit?: number }).concurrencyLimit ?? 2;
+  const sem = getSemaphore(limit);
+  const result = await sem.run(() =>
+    client.chat({ messages, onDelta: opts.onDelta, signal: opts.signal, maxContinues: 2, jsonMode: true }),
+  );
   await logUsage(channel, opts.feature, result);
   return extractJson<T>(result.text);
 }

@@ -11,6 +11,7 @@ export const router = createRouter({
       children: [
         { path: 'library', name: 'library', component: () => import('@/views/LibraryView.vue'), meta: { title: '卡库' } },
         { path: 'editor/:id', name: 'editor', component: () => import('@/views/EditorView.vue'), meta: { title: '卡片编辑器' } },
+        { path: 'compare', name: 'compare', component: () => import('@/views/CompareView.vue'), meta: { title: '两卡对比' } },
         { path: 'converter', name: 'converter', component: () => import('@/views/ConverterView.vue'), meta: { title: '转换工具' } },
         { path: 'wizard', name: 'wizard', component: () => import('@/views/WizardView.vue'), meta: { title: '生成向导' } },
         { path: 'beautify', name: 'beautify', component: () => import('@/views/BeautifyView.vue'), meta: { title: '美化工作台' } },

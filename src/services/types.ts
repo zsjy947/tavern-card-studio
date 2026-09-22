@@ -63,6 +63,10 @@ export interface AiChannelRow {
   apiKey: string;
   modelId: string;
   isActive: boolean;
+  /** 全局系统提示词：所有请求自动前插 system 消息（个性化文风/偏好） */
+  globalSystemPrompt?: string;
+  /** 并发上限（默认 2） */
+  concurrencyLimit?: number;
 }
 
 export interface AiUsageLogRow {

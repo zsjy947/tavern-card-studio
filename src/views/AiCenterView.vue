@@ -2,7 +2,7 @@
 /** AI 中心：多渠道管理（文本/生图）、测连、拉模型、用量记录 */
 import { onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NCard, NInput, NForm, NFormItem, NSelect, NSwitch, NTag, useMessage, NIcon,
+  NSpace, NButton, NCard, NInput, NForm, NFormItem, NSelect, NSwitch, NTag, useMessage, NIcon, NInputNumber,
   NModal, NPopconfirm, NDataTable, NEmpty, NTabs, NTabPane, NText, NRadioGroup, NRadioButton,
 } from 'naive-ui';
 import { AddOutline, TrashOutline, FlashOutline, CloudDownloadOutline } from '@vicons/ionicons5';
@@ -210,6 +210,14 @@ async function testImage() {
         <NFormItem label="模型">
           <NSelect v-model:value="editing.modelId" :options="models.map((m) => ({ label: m, value: m }))" filterable tag
             placeholder="手填或拉模型后选择" />
+        </NFormItem>
+        <NFormItem v-if="editing.kind === 'text'" label="全局系统提示词">
+          <NInput v-model:value="editing.globalSystemPrompt" type="textarea" :rows="2"
+            placeholder="所有文本请求自动前插的 system 消息（如：输出使用简体中文，文风克制细腻）" />
+        </NFormItem>
+        <NFormItem v-if="editing.kind === 'text'" label="并发上限">
+          <NInputNumber v-model:value="editing.concurrencyLimit" :min="1" :max="8" style="width: 120px" />
+          <NText depth="3" style="margin-left: 10px; font-size: 12px">超出排队，防限流</NText>
         </NFormItem>
         <NFormItem label="设为激活">
           <NSwitch v-model:value="editing.isActive" />

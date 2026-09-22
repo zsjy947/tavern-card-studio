@@ -1,22 +1,25 @@
 <script setup lang="ts">
-import { h, computed, ref } from 'vue';
+import { h, computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutContent, NLayoutHeader,
-  NMenu, NSpace, NTag, NText, NIcon, NBadge,
+  NMenu, NSpace, NTag, NText, NIcon, NBadge, NButton,
 } from 'naive-ui';
 import {
   AlbumsOutline, SwapHorizontalOutline, CreateOutline, ColorPaletteOutline,
   LayersOutline, CloudOutline, MedicalOutline, BookOutline, StatsChartOutline,
-  SettingsOutline, SparklesOutline,
+  SettingsOutline, SparklesOutline, TerminalOutline, GitCompareOutline,
 } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
 import { isTauri } from '@/db/tauri';
+import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
+import CommandPalette from '@/components/CommandPalette.vue';
 
 const route = useRoute();
 const router = useRouter();
 const ws = useWorkspace();
 const collapsed = ref(false);
+const paletteShow = ref(false);
 
 function icon(C: typeof AlbumsOutline) {
   return () => h(NIcon, null, { default: () => h(C) });
@@ -43,6 +46,37 @@ function onMenu(key: string) {
 
 const runtimeTag = isTauri() ? { text: '桌面模式', type: 'success' as const } : { text: '浏览器模式', type: 'default' as const };
 const hasTextChannel = computed(() => ws.activeChannel('text'));
+
+/* ---------------- 命令面板（Ctrl+K） ---------------- */
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    paletteShow.value = !paletteShow.value;
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onGlobalKeydown);
+  // 页面导航命令
+  for (const opt of menuOptions.value) {
+    registerCommand({ id: `nav:${opt.key}`, title: `打开 · ${opt.label}`, group: '导航', keywords: opt.label, run: () => { void router.push(opt.key); } })
+  }
+  registerCommand({ id: 'nav:/compare', title: '打开 · 两卡对比', group: '导航', keywords: '对比 compare diff', run: () => { void router.push('/compare'); } });
+  registerCommand({ id: 'palette:new-card', title: '新建角色卡', group: '操作', keywords: '新建 卡片 create', run: async () => {
+    const { createCard } = await import('@/services/cardService');
+    const row = await createCard('新角色');
+    await ws.refreshCards(true);
+    router.push(`/editor/${row.id}`);
+  } });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown);
+  for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
+  unregisterCommand('nav:/compare');
+  unregisterCommand('palette:new-card');
+});
 </script>
 
 <template>
@@ -74,6 +108,10 @@ const hasTextChannel = computed(() => ws.activeChannel('text'));
           <span class="header-title">{{ (route.meta.title as string) ?? '' }}</span>
         </NSpace>
         <NSpace align="center" :size="6" style="margin-left: auto">
+          <NButton size="tiny" tertiary @click="paletteShow = true">
+            <template #icon><NIcon><TerminalOutline /></NIcon></template>
+            Ctrl K
+          </NButton>
           <NText depth="3" style="font-size: 12px">{{ ws.cards.length }} 张卡</NText>
           <NBadge :show="!hasTextChannel" dot type="warning" :offset="[-2, 2]">
             <NTag size="small" round :bordered="false" style="cursor: pointer" @click="router.push('/ai')">
@@ -86,6 +124,8 @@ const hasTextChannel = computed(() => ws.activeChannel('text'));
         <RouterView />
       </NLayoutContent>
     </NLayout>
+
+    <CommandPalette v-model:show="paletteShow" />
   </NLayout>
 </template>
 

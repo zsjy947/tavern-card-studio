@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TavernCard Studio</title>
+    <style>
+      html, body, #app { height: 100%; margin: 0; }
+      #app { min-height: 100vh; }
+      /* 首屏加载动画，避免白屏 */
+      .boot-splash {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: #101014; color: #a78bfa; font-family: system-ui, sans-serif;
+        flex-direction: column; gap: 12px; z-index: 9999;
+      }
+      .boot-splash .logo { font-size: 28px; letter-spacing: 2px; }
+      .boot-bar { width: 180px; height: 3px; background: #26262e; border-radius: 2px; overflow: hidden; }
+      .boot-bar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, #7c3aed, #a78bfa);
+        animation: boot-slide 1s ease-in-out infinite; }
+      @keyframes boot-slide { 0% { transform: translateX(-100%);} 100% { transform: translateX(350%);} }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="boot-splash"><div class="logo">TavernCard Studio</div><div class="boot-bar"><i></i></div></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

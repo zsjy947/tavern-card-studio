@@ -1,0 +1,194 @@
+<script setup lang="ts">
+/** 卡片编辑器：Tab 式全字段编辑 + 保存 + 版本管理 + 规格转换 */
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import {
+  NSpace, NButton, NTabs, NTabPane, useMessage, NIcon, NPopconfirm, NModal,
+  NTag, NSwitch, NTimeline, NTimelineItem, NInput, NEmpty, NSpin, NSelect,
+} from 'naive-ui';
+import { SaveOutline, ArrowBackOutline, GitBranchOutline, SparklesOutline } from '@vicons/ionicons5';
+import type { AnyCard } from '@/core/card';
+import { convertSpec, cardSpec } from '@/core/card';
+import * as cardService from '@/services/cardService';
+import { useWorkspace } from '@/stores/workspace';
+import type { CardVersionRow } from '@/services/types';
+import { countTokens } from '@/core/stats/tokens';
+import BasicTab from './editor/BasicTab.vue';
+import GreetingsTab from './editor/GreetingsTab.vue';
+import WorldbookTab from './editor/WorldbookTab.vue';
+import RegexTab from './editor/RegexTab.vue';
+import ScriptsTab from './editor/ScriptsTab.vue';
+import ExtensionsTab from './editor/ExtensionsTab.vue';
+
+const route = useRoute();
+const router = useRouter();
+const message = useMessage();
+const ws = useWorkspace();
+
+const id = computed(() => String(route.params.id));
+const card = ref<AnyCard | null>(null);
+const dirty = ref(false);
+const saving = ref(false);
+const showVersions = ref(false);
+const versions = ref<CardVersionRow[]>([]);
+const versionNote = ref('');
+
+function markDirty() {
+  dirty.value = true;
+}
+
+onMounted(async () => {
+  const row = await cardService.getCard(id.value);
+  if (!row) {
+    message.error('卡片不存在');
+    router.replace('/library');
+    return;
+  }
+  card.value = JSON.parse(JSON.stringify(row.card)) as AnyCard;
+});
+
+async function save() {
+  if (!card.value) return;
+  saving.value = true;
+  try {
+    await cardService.saveCard(id.value, card.value, { note: versionNote.value || undefined, keepCover: true });
+    dirty.value = false;
+    versionNote.value = '';
+    await ws.refreshCards(true);
+    message.success('已保存（自动存版本快照）');
+  } catch (e) {
+    message.error(`保存失败：${(e as Error).message}`);
+  } finally {
+    saving.value = false;
+  }
+}
+
+const totalTokens = computed(() => {
+  if (!card.value) return 0;
+  const d = card.value.data as Record<string, unknown>;
+  const parts = [
+    'description', 'personality', 'scenario', 'first_mes', 'mes_example',
+    'system_prompt', 'post_history_instructions',
+  ].map((k) => String(d[k] ?? ''));
+  for (const g of ((d.alternate_greetings as string[] | undefined) ?? [])) parts.push(g);
+  for (const e of (((d.character_book as { entries?: { content?: string }[] } | undefined)?.entries) ?? [])) parts.push(e.content ?? '');
+  return parts.reduce((acc, t) => acc + countTokens(t).total, 0);
+});
+
+const specLabel = computed(() => (card.value ? { v1: 'V1', v2: 'V2', v3: 'V3' }[cardSpec(card.value)] : ''));
+
+async function switchSpec(target: 'v2' | 'v3') {
+  if (!card.value) return;
+  card.value = convertSpec(card.value, target);
+  markDirty();
+  message.success(`已转换为 ${target.toUpperCase()}（保存后生效）`);
+}
+
+async function openVersions() {
+  versions.value = await cardService.listVersions(id.value);
+  showVersions.value = true;
+}
+
+const versionDiffs = ref<cardService.FieldDiff[]>([]);
+
+function previewDiff(v: CardVersionRow) {
+  if (!card.value) return;
+  versionDiffs.value = cardService.diffCards(v.card, card.value);
+}
+
+async function rollback(v: CardVersionRow) {
+  await cardService.rollbackToVersion(id.value, v.id);
+  const row = await cardService.getCard(id.value);
+  card.value = JSON.parse(JSON.stringify(row!.card)) as AnyCard;
+  dirty.value = false;
+  showVersions.value = false;
+  versions.value = await cardService.listVersions(id.value);
+  message.success(`已回滚到 v${v.versionNo}`);
+}
+</script>
+
+<template>
+  <NSpin v-if="!card" style="min-height: 200px" />
+  <div v-else class="editor-root">
+    <div class="editor-header">
+      <NSpace align="center" :size="10">
+        <NButton size="small" quaternary @click="router.push('/library')">
+          <template #icon><NIcon><ArrowBackOutline /></NIcon></template>
+        </NButton>
+        <span class="editor-title">{{ card.data.name || '未命名' }}</span>
+        <NTag size="small" round :bordered="false" type="info">{{ specLabel }}</NTag>
+        <NTag size="small" round :bordered="false">{{ totalTokens }} tk（全文）</NTag>
+        <NTag v-if="dirty" size="small" round type="warning" :bordered="false">未保存</NTag>
+      </NSpace>
+      <NSpace align="center" :size="8">
+        <NSelect
+          :value="card.spec === 'chara_card_v3' ? 'v3' : card.spec === 'chara_card_v2' ? 'v2' : 'v3'"
+          :options="[{ label: '转 V2', value: 'v2' }, { label: '转 V3', value: 'v3' }]"
+          size="tiny" style="width: 90px"
+          @update:value="switchSpec"
+        />
+        <NButton size="small" secondary @click="openVersions">
+          <template #icon><NIcon><GitBranchOutline /></NIcon></template>版本
+        </NButton>
+        <NButton size="small" type="primary" :loading="saving" :disabled="!dirty" @click="save">
+          <template #icon><NIcon><SaveOutline /></NIcon></template>保存
+        </NButton>
+      </NSpace>
+    </div>
+
+    <NTabs type="line" animated default-value="basic" style="margin-top: 4px">
+      <NTabPane name="basic" tab="基础信息">
+        <BasicTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="greetings" tab="描述与开场白">
+        <GreetingsTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="worldbook" tab="世界书">
+        <WorldbookTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="regex" tab="正则">
+        <RegexTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="scripts" tab="脚本">
+        <ScriptsTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="extensions" tab="扩展">
+        <ExtensionsTab :card="card" @change="markDirty" />
+      </NTabPane>
+    </NTabs>
+
+    <NModal v-model:show="showVersions" preset="card" title="版本历史" style="width: 640px">
+      <NSpace vertical :size="10">
+        <NInput v-model:value="versionNote" size="small" placeholder="下次保存的版本备注（可选）" />
+        <NEmpty v-if="!versions.length" description="还没有版本" />
+        <NTimeline v-else>
+          <NTimelineItem v-for="v in versions" :key="v.id" :title="`v${v.versionNo} · ${v.note}`" :time="new Date(v.createdAt).toLocaleString()">
+            <NSpace :size="6">
+              <NButton size="tiny" @click="previewDiff(v)">对比当前</NButton>
+              <NPopconfirm @positive-click="rollback(v)">
+                <template #trigger><NButton size="tiny" type="warning">回滚到此版</NButton></template>
+                当前未保存修改将丢弃，确认？
+              </NPopconfirm>
+            </NSpace>
+          </NTimelineItem>
+        </NTimeline>
+        <div v-if="versionDiffs.length" class="version-diff">
+          <div v-for="(d, i) in versionDiffs" :key="i" class="version-diff-row">
+            <b>{{ d.field }}</b>（{{ d.kind }}）：<span class="diff-before">{{ (d.before || '∅').slice(0, 120) }}</span>
+            → <span class="diff-after">{{ (d.after || '∅').slice(0, 120) }}</span>
+          </div>
+        </div>
+      </NSpace>
+    </NModal>
+  </div>
+</template>
+
+<style scoped>
+.editor-root { max-width: 1080px; margin: 0 auto; }
+.editor-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.editor-title { font-size: 16px; font-weight: 800; }
+.version-diff { max-height: 260px; overflow: auto; border-top: 1px dashed rgba(255,255,255,.1); padding-top: 8px; }
+.version-diff-row { font-size: 12px; margin-bottom: 6px; line-height: 1.5; }
+.diff-before { color: #f87171; }
+.diff-after { color: #4ade80; }
+</style>

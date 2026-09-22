@@ -1,6 +1,6 @@
 /**
- * Tauri SQLite 驱动：通过 window.__TAURI__.core.invoke 调用 plugin:sql 命令，
- * 无需引入 @tauri-apps/plugin-sql JS 包（保持 web 构建零 Tauri 依赖）。
+ * Tauri SQLite 驱动：通过 window.__TAURI__.core.invoke 调用 plugin:sql 命令
+ * 与自定义 db_url 命令（便携优先：exe 同级 ./data/studio.db，失败回退 AppData）。
  */
 
 import type { DataStore } from './store';
@@ -23,24 +23,26 @@ function tauriInvoke(): TauriInvoke {
   return g.core.invoke;
 }
 
-/** 数据库连接字符串：便携模式 ./data/studio.db（Rust 侧已切好工作目录） */
-const DB_URL = 'sqlite:studio.db';
-
 interface SqlRow {
   [k: string]: unknown;
 }
 
 export class TauriSqlStore implements DataStore {
   readonly kind = 'sqlite' as const;
+  private db: string | null = null;
   private ready: Promise<void>;
 
   constructor() {
+    const invoke = tauriInvoke();
+    // 连接串由 Rust 决定：便携绝对路径或相对（AppData）
     this.ready = (async () => {
-      const invoke = tauriInvoke();
-      await invoke('plugin:sql|load', { db: DB_URL });
+      this.db = await invoke('db_url')
+        .then((url) => String(url))
+        .catch(() => 'sqlite:studio.db');
+      await invoke('plugin:sql|load', { db: this.db });
       for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories']) {
         await invoke('plugin:sql|execute', {
-          db: DB_URL,
+          db: this.db,
           query: `CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY, json TEXT NOT NULL)`,
           params: [],
         });
@@ -50,14 +52,12 @@ export class TauriSqlStore implements DataStore {
 
   private async exec(query: string, params: unknown[]): Promise<SqlRow[]> {
     await this.ready;
-    const invoke = tauriInvoke();
-    return (await invoke('plugin:sql|select', { db: DB_URL, query, params })) as SqlRow[];
+    return (await tauriInvoke()('plugin:sql|select', { db: this.db!, query, params })) as SqlRow[];
   }
 
   private async run(query: string, params: unknown[]): Promise<void> {
     await this.ready;
-    const invoke = tauriInvoke();
-    await invoke('plugin:sql|execute', { db: DB_URL, query, params });
+    await tauriInvoke()('plugin:sql|execute', { db: this.db!, query, params });
   }
 
   async get<T>(table: string, id: string): Promise<T | undefined> {

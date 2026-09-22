@@ -42,14 +42,5 @@
         ]
       }
     }
-  },
-  "plugins": {
-    "sql": {
-      "preload": {
-        "db": [
-          "sqlite:studio.db"
-        ]
-      }
-    }
   }
 }

@@ -55,7 +55,7 @@ const previewVars = computed(() => {
   return vars;
 });
 
-const previewHtml = computed(() => (tpl.value ? renderStatusbarHtml(tpl.value, previewVars.value, chosenCard.value?.name ?? '{{char}}') : ''));
+const previewHtml = computed(() => (tpl.value ? renderStatusbarHtml(tpl.value, previewVars.value, chosenCard.value?.name ?? '{{char}}', ws.userName) : ''));
 
 const imageLinkInput = computed(() => (tpl.value?.variables.some((v) => v.key.includes('url')) ? varValues.value[tpl.value.variables.find((v) => v.key.includes('url'))!.key] ?? '' : ''));
 const imageLinkWarn = computed(() => {
@@ -74,6 +74,7 @@ async function insert() {
   const { card: next, inserted: ins } = insertStatusbar(row.card, tpl.value, {
     variables: previewVars.value,
     charName: chosenCard.value.name,
+    userName: ws.userName,
   });
   await cardService.saveCard(row.id, next, { note: `美化：插入状态栏 ${tpl.value.tag}`, keepCover: true });
   await ws.refreshCards(true);

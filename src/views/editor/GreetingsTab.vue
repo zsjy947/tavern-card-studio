@@ -32,7 +32,9 @@ function removeGreeting(i: number) {
   const next = [...greetings.value];
   next.splice(i, 1);
   set('alternate_greetings', next);
+  // 删除后同步预览索引：预览位在删除位之后时前移一位，避免指向错条目
   if (previewWhich.value === i) previewWhich.value = 'first';
+  else if (typeof previewWhich.value === 'number' && previewWhich.value > i) previewWhich.value = previewWhich.value - 1;
 }
 
 const previewHtml = computed(() => {

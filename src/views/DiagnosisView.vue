@@ -2,7 +2,7 @@
 /** 诊断与调整：静态检查（即时）+ 卡医 LLM 诊断（结构化报告）+ 修复建议 → diff → 应用 */
 import { computed, onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem, NInput, NSpin, NModal, NDescriptions, NDescriptionsItem, NProgress, NGrid,
+  NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem, NInput, NSpin, NModal, NDescriptions, NDescriptionsItem, NProgress,
 } from 'naive-ui';
 import { MedicalOutline, ShieldCheckmarkOutline, BuildOutline } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
@@ -115,18 +115,17 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
       </NButton>
     </NSpace>
 
-    <NGrid v-if="issues.length" :cols="2" :x-gap="14">
-      <NCard size="small" title="静态检查结果">
-        <NSpace vertical :size="6">
-          <div v-for="(i, idx) in issues" :key="idx" class="diag-row">
-            <NTag size="tiny" :bordered="false" :type="severityType[i.severity]">{{ i.severity }}</NTag>
-            <b>{{ i.field }}</b>
-            <span>{{ i.message }}</span>
-            <span v-if="i.suggestion" class="diag-suggestion">→ {{ i.suggestion }}</span>
-          </div>
-        </NSpace>
-      </NCard>
-    </NGrid>
+    <!-- 注意：不能用 NGrid 直接包 NCard——naive-ui NGrid 只渲染 NGi 子元素，其他内容会被静默丢弃 -->
+    <NCard v-if="issues.length" size="small" title="静态检查结果" :style="report || doctorBusy ? 'margin-bottom: 14px' : ''">
+      <NSpace vertical :size="6">
+        <div v-for="(i, idx) in issues" :key="idx" class="diag-row">
+          <NTag size="tiny" :bordered="false" :type="severityType[i.severity]">{{ i.severity }}</NTag>
+          <b>{{ i.field }}</b>
+          <span>{{ i.message }}</span>
+          <span v-if="i.suggestion" class="diag-suggestion">→ {{ i.suggestion }}</span>
+        </div>
+      </NSpace>
+    </NCard>
 
     <NCard v-if="doctorBusy || report" size="small" title="卡医报告" style="margin-top: 14px">
       <NSpin v-if="doctorBusy" size="small" style="width: 100%">

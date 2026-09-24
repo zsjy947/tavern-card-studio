@@ -7,6 +7,7 @@
  * 3. creator 缺失时回退 creatorcomment 等
  * 4. 导出时补齐顶层冗余字段（部分旧前端只读顶层）
  */
+import { z } from 'zod';
 import {
   SPEC_V2,
   SPEC_V3,
@@ -19,7 +20,12 @@ import {
 
 /** 宽容解析原始 JSON 为内部卡片对象；识别不了 spec 时按内容推断 */
 export function parseLooseCard(raw: unknown): AnyCard {
-  const loose = looseCardSchema.parse(raw ?? {});
+  let loose: z.infer<typeof looseCardSchema>;
+  try {
+    loose = looseCardSchema.parse(raw ?? {});
+  } catch (e) {
+    throw formatZodError(e, '卡结构');
+  }
 
   let dataRaw: Record<string, unknown>;
   if (loose.data && typeof loose.data === 'object') {
@@ -42,13 +48,25 @@ export function parseLooseCard(raw: unknown): AnyCard {
   dataRaw = { ...topFallback, ...stripEmpty(dataRaw) };
 
   const isV3 = loose.spec === SPEC_V3 || (loose.data as { spec?: string })?.spec === SPEC_V3;
-  if (isV3) {
-    const data = cardDataV3Schema.parse(dataRaw);
-    return finalizeV3(data, loose);
+  try {
+    if (isV3) {
+      const data = cardDataV3Schema.parse(dataRaw);
+      return finalizeV3(data, loose);
+    }
+    // 无 spec 视为 V2（V1 内容已并入 dataRaw；字段远超 V1 集合也能容纳）
+    const data = parseV2Data(dataRaw);
+    return finalizeV2(data, loose);
+  } catch (e) {
+    throw formatZodError(e, 'data 块');
   }
-  // 无 spec 视为 V2（V1 内容已并入 dataRaw；字段远超 V1 集合也能容纳）
-  const data = parseV2Data(dataRaw);
-  return finalizeV2(data, loose);
+}
+
+/** 把 zod 校验错误转成用户可读的中文提示（导入失败时直接展示给用户） */
+function formatZodError(e: unknown, scope: string): Error {
+  if (!(e instanceof z.ZodError)) return e as Error;
+  const issues = e.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(根)'}: ${i.message}`);
+  const more = e.issues.length > 3 ? ` 等 ${e.issues.length} 处` : '';
+  return new Error(`卡数据校验失败（${scope}）：${issues.join('；')}${more}。卡可能来自非标准工具，请检查对应字段或用「扩展 → 原始 JSON」手工修复`);
 }
 
 function stripEmpty(obj: Record<string, unknown>): Record<string, unknown> {

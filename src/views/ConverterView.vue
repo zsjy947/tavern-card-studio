@@ -42,10 +42,12 @@ async function convertPngToJson() {
       }
       const issues = runStaticChecks(card);
       const errors = issues.filter((i) => i.severity === 'error').length;
+      // 明细直接进报告，避免只报「N 个错误」却看不到错在哪
+      const details = issues.slice(0, 4).map((i) => `${i.severity === 'error' ? '✗' : i.severity === 'warn' ? '⚠' : 'ℹ'} ${i.field}：${i.message}`);
       report.value.push({
         name: f.name,
         ok: errors === 0,
-        detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}`,
+        detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}${issues.length ? `（${issues.length} 项）` : ''}${details.length ? '\n' + details.join('\n') : ''}`,
       });
       okCount++;
     } catch (e) {
@@ -143,7 +145,7 @@ function run() {
               <NSpace :size="8" align="center">
                 <NTag size="small" :bordered="false" :type="r.ok ? 'success' : 'error'">{{ r.ok ? 'OK' : '失败' }}</NTag>
                 <b style="font-size: 13px">{{ r.name }}</b>
-                <NText depth="3" style="font-size: 12px">{{ r.detail }}</NText>
+                <NText depth="3" style="font-size: 12px; white-space: pre-line; line-height: 1.6">{{ r.detail }}</NText>
               </NSpace>
             </NListItem>
           </NList>

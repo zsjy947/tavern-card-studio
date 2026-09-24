@@ -8,6 +8,7 @@ import {
 } from '@/core/card';
 import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/core/png';
 import { sumTokenStats } from '@/core/stats/tokens';
+import { getSetting, SETTING_KEYS } from './appSettings';
 import type { CardRow, CardVersionRow } from './types';
 
 export interface ImportResult {
@@ -271,10 +272,14 @@ export function cardToJsonText(card: AnyCard): string {
   return JSON.stringify(card, null, 2);
 }
 
-/** 卡导出为 PNG（无底图用占位） */
+/** 卡导出为 PNG（无底图用占位）；未显式指定 dualWrite 时读设置页偏好（默认双写） */
 export async function cardToPngBytes(card: AnyCard, basePng?: Uint8Array | null, opts: { dualWrite?: boolean } = {}): Promise<Uint8Array> {
+  let dualWrite = opts.dualWrite;
+  if (dualWrite === undefined) {
+    dualWrite = await getSetting(SETTING_KEYS.pngDualWrite, true);
+  }
   const base = basePng && basePng.length > 8 ? basePng : makePlaceholderPng(256);
-  return injectCardIntoPng(base, cardToJsonText(card), { dualWrite: opts.dualWrite !== false });
+  return injectCardIntoPng(base, cardToJsonText(card), { dualWrite });
 }
 
 export async function pngToDataUrl(bytes: Uint8Array): Promise<string> {

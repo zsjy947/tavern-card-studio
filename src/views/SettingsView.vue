@@ -6,6 +6,7 @@ import {
 } from 'naive-ui';
 import { DownloadOutline, CloudUploadOutline } from '@vicons/ionicons5';
 import { exportBackup, importBackup, downloadBlob, timestampName } from '@/services/backupService';
+import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
 import { pickFiles, formatBytes } from '@/utils/file';
 import { getStore } from '@/db';
 import { useWorkspace } from '@/stores/workspace';
@@ -24,7 +25,20 @@ onMounted(async () => {
     driver: store.kind === 'sqlite' ? 'SQLite（桌面模式）' : store.kind === 'indexeddb' ? 'IndexedDB（浏览器模式）' : '内存（测试）',
     tables: Object.fromEntries(Object.entries(dump).map(([k, v]) => [k, v.length])),
   };
+  // 偏好项从库加载（持久化，跨会话生效）
+  userName.value = await getSetting(SETTING_KEYS.uiUserName, 'User');
+  dualWrite.value = await getSetting(SETTING_KEYS.pngDualWrite, true);
 });
+
+async function persistUserName(v: string) {
+  ws.userName = v;
+  await setSetting(SETTING_KEYS.uiUserName, v);
+}
+
+async function persistDualWrite(v: boolean) {
+  dualWrite.value = v;
+  await setSetting(SETTING_KEYS.pngDualWrite, v);
+}
 
 async function doExport() {
   busy.value = 'export';
@@ -93,10 +107,10 @@ async function doImport(wipe: boolean) {
 
       <NCard size="small" title="偏好">
         <NFormItem label="默认 {{user}} 名（预览用）" label-placement="left">
-          <NInput v-model:value="userName" style="width: 200px" @update:value="ws.userName = userName" />
+          <NInput v-model:value="userName" style="width: 200px" @update:value="persistUserName" />
         </NFormItem>
         <NFormItem label="PNG 导出双写 ccv3 + chara（兼容新旧前端）" label-placement="left">
-          <NSwitch v-model:value="dualWrite" />
+          <NSwitch :value="dualWrite" @update:value="persistDualWrite" />
         </NFormItem>
       </NCard>
 

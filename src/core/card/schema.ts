@@ -51,20 +51,23 @@ export const bookEntryExtensionSchema = z
   .partial()
   .passthrough();
 
-export const bookEntrySchema = z.object({
-  id: z.number().int(),
-  keys: z.array(z.string()).default([]),
-  secondary_keys: z.array(z.string()).default([]),
-  comment: z.string().default(''),
-  content: z.string().default(''),
-  constant: z.boolean().default(false),
-  selective: z.boolean().default(false),
-  insertion_order: z.number().int().default(100),
-  enabled: z.boolean().default(true),
-  position: bookPositionEnum.default('before_char'),
-  use_regex: z.boolean().default(false),
-  extensions: bookEntryExtensionSchema.default({}),
-});
+export const bookEntrySchema = z
+  .object({
+    // 真实社区卡条目可能缺 id：在 characterBookSchema.entries 的 preprocess 里按序号兜底
+    id: z.number().int(),
+    keys: z.array(z.string()).default([]),
+    secondary_keys: z.array(z.string()).default([]),
+    comment: z.string().default(''),
+    content: z.string().default(''),
+    constant: z.boolean().default(false),
+    selective: z.boolean().default(false),
+    insertion_order: z.number().int().default(100),
+    enabled: z.boolean().default(true),
+    position: bookPositionEnum.default('before_char'),
+    use_regex: z.boolean().default(false),
+    extensions: bookEntryExtensionSchema.default({}),
+  })
+  .passthrough();
 
 export const characterBookSchema = z.object({
   name: z.string().optional(),
@@ -73,57 +76,79 @@ export const characterBookSchema = z.object({
   token_budget: z.number().int().optional(),
   recursive_scanning: z.boolean().optional(),
   extensions: z.record(z.unknown()).default({}),
-  entries: z.array(bookEntrySchema).default([]),
+  entries: z.preprocess(fillMissingIds((i) => i), z.array(bookEntrySchema).default([])),
 });
 
 /* ------------------------------------------------------------------ */
 /* 正则脚本（SillyTavern extensions.regex_scripts）                     */
 /* ------------------------------------------------------------------ */
 
-export const regexScriptSchema = z.object({
-  id: z.string(),
-  scriptName: z.string(),
-  findRegex: z.string(),
-  replaceString: z.string().default(''),
-  trimStrings: z.array(z.string()).default([]),
-  placement: z.array(z.number().int()).default([]),
-  disabled: z.boolean().default(false),
-  markdownOnly: z.boolean().default(false),
-  promptOnly: z.boolean().default(false),
-  runOnEdit: z.boolean().default(true),
-  substituteRegex: z.number().int().default(0),
-  minDepth: z.number().int().nullable().default(null),
-  maxDepth: z.number().int().nullable().default(null),
-});
+export const regexScriptSchema = z
+  .object({
+    // 真实社区卡的正则脚本普遍没有 id（ST 保存时才生成）：缺失时按序号兜底（见下方 preprocess）
+    id: z.string(),
+    scriptName: z.string(),
+    findRegex: z.string(),
+    replaceString: z.string().default(''),
+    trimStrings: z.array(z.string()).default([]),
+    placement: z.array(z.number().int()).default([]),
+    disabled: z.boolean().default(false),
+    markdownOnly: z.boolean().default(false),
+    promptOnly: z.boolean().default(false),
+    runOnEdit: z.boolean().default(true),
+    substituteRegex: z.number().int().default(0),
+    minDepth: z.number().int().nullable().default(null),
+    maxDepth: z.number().int().nullable().default(null),
+  })
+  .passthrough();
 
 /* ------------------------------------------------------------------ */
 /* 酒馆助手脚本 / 快速回复                                              */
 /* ------------------------------------------------------------------ */
 
-export const tavernHelperScriptSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  comment: z.string().default(''),
-  type: z.string().default('inline'),
-  enabled: z.boolean().default(true),
-  autoRun: z.boolean().default(false),
-  // 脚本触发时机（TavernHelper 约定字符串）
-  event: z.string().default(''),
-  content: z.string().default(''),
-});
+export const tavernHelperScriptSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    comment: z.string().default(''),
+    type: z.string().default('inline'),
+    enabled: z.boolean().default(true),
+    autoRun: z.boolean().default(false),
+    // 脚本触发时机（TavernHelper 约定字符串）
+    event: z.string().default(''),
+    content: z.string().default(''),
+  })
+  .passthrough();
 
-export const quickReplySchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  message: z.string().default(''),
-  /** TavernHelper QuickReply v2: setLabel? 简化为字符串命令 */
-  command: z.string().default(''),
-  fileName: z.string().default(''),
-  hidden: z.boolean().default(false),
-  executeOnStartup: z.boolean().default(false),
-  executeOnUser: z.boolean().default(false),
-  executeOnAi: z.boolean().default(false),
-});
+export const quickReplySchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    message: z.string().default(''),
+    /** TavernHelper QuickReply v2: setLabel? 简化为字符串命令 */
+    command: z.string().default(''),
+    fileName: z.string().default(''),
+    hidden: z.boolean().default(false),
+    executeOnStartup: z.boolean().default(false),
+    executeOnUser: z.boolean().default(false),
+    executeOnAi: z.boolean().default(false),
+  })
+  .passthrough();
+
+/**
+ * 数组元素缺 id 时的确定性兜底（按序号补）：同一张卡两次导入得到相同 id，
+ * 保证 dataHash 稳定（导入去重依赖哈希一致）。makeId 收到序号，返回可用的 id。
+ */
+function fillMissingIds(makeId: (i: number) => unknown) {
+  return (raw: unknown): unknown => {
+    if (!Array.isArray(raw)) return raw;
+    return raw.map((item, i) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      if ((item as { id?: unknown }).id !== undefined) return item;
+      return { ...item, id: makeId(i) };
+    });
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* depth prompt 等                                                      */
@@ -166,10 +191,10 @@ export const cardDataBaseSchema = z.object({
       fav: z.boolean().optional(),
       world: z.string().optional(),
       depth_prompt: depthPromptSchema.optional(),
-      regex_scripts: z.array(regexScriptSchema).optional(),
-      TavernHelper_scripts: z.array(tavernHelperScriptSchema).optional(),
+      regex_scripts: z.preprocess(fillMissingIds((i) => `script_${i}`), z.array(regexScriptSchema).optional()),
+      TavernHelper_scripts: z.preprocess(fillMissingIds((i) => `ths_${i}`), z.array(tavernHelperScriptSchema).optional()),
       tavern_helper: z.record(z.unknown()).optional(),
-      QuickReply: z.record(z.unknown()).optional(),
+      QuickReply: z.preprocess(fillMissingIds((i) => `qr_${i}`), z.array(quickReplySchema).optional()),
     })
     .partial()
     .passthrough()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 卡片编辑器：Tab 式全字段编辑 + 保存 + 版本管理 + 规格转换 + 本地撤销栈 */
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NSpace, NButton, NTabs, NTabPane, useMessage, NIcon, NPopconfirm, NModal,
@@ -64,7 +64,7 @@ function redo() {
   }
 }
 
-onMounted(async () => {
+async function loadCard() {
   const row = await cardService.getCard(id.value);
   if (!row) {
     message.error('卡片不存在');
@@ -72,8 +72,18 @@ onMounted(async () => {
     return;
   }
   card.value = JSON.parse(JSON.stringify(row.card)) as AnyCard;
+  dirty.value = false;
   history.reset(card.value);
   history.bindHotkeys(window, applyRestored);
+}
+
+onMounted(loadCard);
+
+// 路由 id 变化时组件会被复用（如命令面板里「新建角色卡」），必须重载，否则保存会写错卡
+watch(id, (next, prev) => {
+  if (next === prev) return;
+  if (card.value && dirty.value) message.warning('上一张卡的未保存修改已丢弃（可用版本历史找回）');
+  void loadCard();
 });
 
 onBeforeUnmount(() => history.unbindHotkeys());
@@ -170,10 +180,10 @@ async function rollback(v: CardVersionRow) {
           @update:value="switchSpec"
         />
         <NButton size="small" secondary :disabled="!history.canUndo.value" @click="undo">
-          <template #icon><NIcon><UndoOutline /></NIcon></template>撤销
+          <template #icon><NIcon><ArrowUndoOutline /></NIcon></template>撤销
         </NButton>
         <NButton size="small" secondary :disabled="!history.canRedo.value" @click="redo">
-          <template #icon><NIcon><RedoOutline /></NIcon></template>重做
+          <template #icon><NIcon><ArrowRedoOutline /></NIcon></template>重做
         </NButton>
         <NButton size="small" secondary @click="openVersions">
           <template #icon><NIcon><GitBranchOutline /></NIcon></template>版本

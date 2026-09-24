@@ -44,13 +44,13 @@ const payload = computed<CardTemplatePayload | null>(() => (chosen.value?.payloa
 const GEN_ORDER = ['description', 'personality', 'scenario', 'mes_example', 'first_mes'];
 
 const genFields = computed(() => {
-  if (!payload.value) return [];
+  if (!payload.value || !Array.isArray(payload.value.fields)) return [];
   return payload.value.fields
     .filter((f) => GEN_ORDER.includes(f.key) && f.key !== 'name' && f.key !== 'tags')
     .sort((a, b) => GEN_ORDER.indexOf(a.key) - GEN_ORDER.indexOf(b.key));
 });
 
-const progressLabel = computed(() => `${genFields.value.findIndex((f) => !outputs.value[f.key]) + 1 > 0 ? '进行中' : '完成'} · ${Object.keys(outputs).length}/${genFields.value.length}`);
+const progressLabel = computed(() => `${genFields.value.findIndex((f) => !outputs.value[f.key]) + 1 > 0 ? '进行中' : '完成'} · ${Object.keys(outputs.value).length}/${genFields.value.length}`);
 
 async function findPrompt(target: string): Promise<PromptPayload | null> {
   const rows = await listTemplates('prompt');
@@ -90,6 +90,10 @@ async function expandBrief() {
 }
 
 async function genField(key: string, label: string) {
+  if (busy.value) {
+    message.warning('已有生成任务进行中，请等待完成');
+    return;
+  }
   if (!briefExpanded.value && autoMode.value === 'semi') {
     message.warning('建议先扩写设定');
   }
@@ -159,7 +163,7 @@ async function finish() {
         >
           <b>{{ t.name }}</b>
           <span class="wiz-tpl-desc">{{ t.description }}</span>
-          <NTag size="tiny" :bordered="false">{{ (t.payload as CardTemplatePayload).spec.toUpperCase() }}</NTag>
+          <NTag size="tiny" :bordered="false">{{ String((t.payload as CardTemplatePayload | undefined)?.spec ?? 'v3').toUpperCase() }}</NTag>
         </div>
       </NSpace>
       <template #action>

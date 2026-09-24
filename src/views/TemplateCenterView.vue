@@ -34,18 +34,27 @@ async function refresh() {
 const byKind = computed(() => templates.value.filter((t) => t.kind === kind.value));
 
 function preview(t: TemplateRow): string {
-  const p = t.payload as Record<string, unknown>;
-  switch (t.kind) {
-    case 'card':
-      return (p as unknown as CardTemplatePayload).fields.map((f) => f.label).join(' · ');
-    case 'statusbar':
-      return `占位符 ${(p as unknown as StatusbarPayload).tag}，${(p as unknown as StatusbarPayload).variables.length} 个变量`;
-    case 'regex':
-      return `${(p as { script: { findRegex: string } }).script.findRegex}`;
-    case 'prompt':
-      return `target: ${(p as unknown as PromptPayload).target}`;
-    default:
-      return '';
+  // payload 来自用户新建/导入，形状不可信：一律可选链，畸形数据只影响预览文案不能崩页面
+  const p = (t.payload ?? {}) as Record<string, unknown>;
+  try {
+    switch (t.kind) {
+      case 'card': {
+        const fields = (p.fields as { label?: string }[] | undefined) ?? [];
+        return fields.length ? fields.map((f) => f.label ?? '?').join(' · ') : '（模板未定义字段）';
+      }
+      case 'statusbar': {
+        const vars = (p.variables as unknown[] | undefined) ?? [];
+        return `占位符 ${String(p.tag ?? '?')}，${vars.length} 个变量`;
+      }
+      case 'regex':
+        return String((p.script as { findRegex?: string } | undefined)?.findRegex ?? '（未定义正则）');
+      case 'prompt':
+        return `target: ${String(p.target ?? '?')}`;
+      default:
+        return '';
+    }
+  } catch {
+    return '（payload 结构异常，仅显示基本信息）';
   }
 }
 

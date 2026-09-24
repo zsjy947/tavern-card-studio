@@ -178,15 +178,34 @@ export class LlmClient {
     if (!completionTokens) completionTokens = roughTokens(full);
     if (!promptTokens) promptTokens = roughTokens(options.messages.map((m) => m.content).join('\n'));
 
-    // 流式截断续写
+    // 流式截断续写：与非流式路径一致，把已生成的前文作为 assistant 消息带回，
+    // 否则模型看不到已写内容，会重新生成一份不相干回答
     if (finishReason === 'length' && (options.maxContinues ?? 0) > 0 && !options.signal?.aborted) {
       const savedStream = options.onDelta;
-      const cont = await this.chatOnce({ ...options, onDelta: undefined, streamContinueFor: full } as ChatOptions & { streamContinueFor?: string }, started).catch(() => undefined);
-      if (cont) {
-        full += cont.text;
-        savedStream?.(cont.text, full);
-        promptTokens += cont.promptTokens;
-        completionTokens += cont.completionTokens;
+      const contBody = {
+        model: this.config.modelId,
+        stream: false,
+        messages: [
+          ...options.messages,
+          { role: 'assistant', content: full },
+          { role: 'user', content: '继续，从中断处直接接着写，不要重复、不要解释。' },
+        ],
+        ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(this.config.extraBody ?? {}),
+      };
+      try {
+        const res = await this.request(this.endpoint('/chat/completions'), contBody, options.signal);
+        const cj = (await res.json()) as {
+          choices?: { message?: { content?: string } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        const piece = cj.choices?.[0]?.message?.content ?? '';
+        full += piece;
+        promptTokens += cj.usage?.prompt_tokens ?? 0;
+        completionTokens += cj.usage?.completion_tokens ?? roughTokens(piece);
+        savedStream?.(piece, full);
+      } catch {
+        /* 续写失败时按截断内容返回 */
       }
     }
 

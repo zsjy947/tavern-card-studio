@@ -93,7 +93,10 @@
 ## 视图层约定
 
 - 路由 hash 模式（file:// 与 Tauri 协议下可用）。
-- 编辑器视图持有卡的深拷贝本地态，`markDirty` 跟踪，保存走 saveCard；各 Tab 通过 props+change 事件上抛，不直接持久化。
+- naive-ui `NGrid` 的直接子元素只能是 `NGi`，其余组件会被静默丢弃不渲染（真实事故：诊断页明细面板空白）；单卡片布局直接用 NCard。
+- 社区卡 schema 必须宽容：`regex_scripts`/`TavernHelper_scripts`/`QuickReply`/世界书条目的 `id` 在真实卡里普遍缺失，schema 层按序号确定性兜底（随机 id 会破坏 dataHash 去重），未知字段 passthrough 保留。
+- 编辑器视图持有卡的深拷贝本地态，`markDirty` 跟踪，保存走 saveCard；路由 `:id` 变化时必须重载（组件复用），否则保存会写入错误的卡。
+- 本地撤销栈在撤销/重做前必须 flush 待提交的节流快照，否则最近 500ms 内的编辑丢失。
 - iframe 预览 `sandbox="allow-same-origin"`（不执行脚本优先安全；TavernHelper 运行时变量刷新由模板 JS 在真机环境自理）。
 - CodeMirror 6 轻封装 + 自带 One Dark 仿制主题（免去 theme-one-dark 依赖）。
 

@@ -128,6 +128,66 @@ describe('规格迁移', () => {
   });
 });
 
+
+describe('社区卡宽容导入（真实世界兼容）', () => {
+  /** 复刻 st-novel-card 等工具产出的卡：正则脚本普遍缺 id，且带 schema 外字段 */
+  const COMMUNITY_CARD = {
+    spec: SPEC_V3,
+    spec_version: '3.0',
+    data: {
+      name: '社区卡',
+      description: 'desc',
+      first_mes: 'hi',
+      extensions: {
+        regex_scripts: [
+          { scriptName: '状态栏', findRegex: '/<SBR/>/g', replaceString: '<div>x</div>', secretReplacement: '私有字段' },
+          { scriptName: '隐藏', findRegex: '/<HIDE/>/g', placement: [2] },
+        ],
+      },
+      character_book: {
+        name: 'book',
+        entries: [
+          { keys: ['关键词'], content: 'c1' }, // 缺 id 及大部分默认字段
+          { id: 7, keys: ['k2'], content: 'c2' },
+        ],
+      },
+    },
+  };
+
+  it('正则脚本缺 id 可导入并按序号补齐', () => {
+    const card = parseLooseCard(COMMUNITY_CARD);
+    const scripts = card.data.extensions!.regex_scripts!;
+    expect(scripts).toHaveLength(2);
+    expect(scripts[0]!.id).toBe('script_0');
+    expect(scripts[1]!.id).toBe('script_1');
+  });
+
+  it('schema 外字段 passthrough 保留（往返不丢）', () => {
+    const card = parseLooseCard(COMMUNITY_CARD);
+    const s0 = card.data.extensions!.regex_scripts![0]! as unknown as Record<string, unknown>;
+    expect(s0.secretReplacement).toBe('私有字段');
+  });
+
+  it('世界书条目缺 id 按序号补齐，已有 id 不动', () => {
+    const card = parseLooseCard(COMMUNITY_CARD);
+    const entries = card.data.character_book!.entries;
+    expect(entries[0]!.id).toBe(0);
+    expect(entries[1]!.id).toBe(7);
+    expect(entries[0]!.insertion_order).toBe(100); // 默认值生效
+  });
+
+  it('同卡重复解析哈希一致（序号兜底 id 必须确定性）', () => {
+    const a = parseLooseCard(COMMUNITY_CARD);
+    const b = parseLooseCard(JSON.parse(JSON.stringify(COMMUNITY_CARD)));
+    expect(dataHash(a.data)).toBe(dataHash(b.data));
+  });
+
+  it('无法解析时抛可读中文错误而非 Zod 转储', () => {
+    const broken = { spec: SPEC_V3, data: { name: 'x', extensions: { regex_scripts: [42] } } };
+    expect(() => parseLooseCard(broken)).toThrow(/校验失败/);
+  });
+});
+
 describe('dataHash', () => {
   it('同内容不同键序哈希一致', () => {
     const a = dataHash({ name: 'x', description: 'y', tags: ['a'] });

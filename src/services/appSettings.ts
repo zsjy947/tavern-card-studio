@@ -1,0 +1,19 @@
+/** 通用键值设置（settings 表包装）：偏好项持久化 */
+import { getStore } from '@/db';
+
+export async function getSetting<T>(key: string, fallback: T): Promise<T> {
+  const row = await (await getStore()).get<{ id: string; value: T }>('settings', key);
+  return row === undefined ? fallback : row.value;
+}
+
+export async function setSetting<T>(key: string, value: T): Promise<void> {
+  await (await getStore()).put('settings', key, { id: key, value });
+}
+
+/** 已知设置键 */
+export const SETTING_KEYS = {
+  /** PNG 导出双写 ccv3 + chara（默认 true） */
+  pngDualWrite: 'png_dual_write',
+  /** 预览用 {{user}} 默认名 */
+  uiUserName: 'ui_user_name',
+} as const;

@@ -37,7 +37,17 @@ const rawError = ref('');
 
 function applyRaw() {
   try {
-    const parsed = JSON.parse(rawJson.value);
+    const parsed = JSON.parse(rawJson.value) as Record<string, unknown>;
+    // 语法之外再做最小形状校验：缺 data 块或 entries 非数组的 JSON 会让编辑器其他 Tab 崩溃
+    const problems: string[] = [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) problems.push('根节点必须是对象');
+    if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) problems.push('缺少 data 对象');
+    const book = (parsed.data as Record<string, unknown> | undefined)?.character_book as { entries?: unknown } | undefined;
+    if (book !== undefined && (!book.entries || !Array.isArray(book.entries))) problems.push('character_book.entries 必须是数组');
+    if (problems.length) {
+      rawError.value = problems.join('；');
+      return;
+    }
     // 原地替换 card 内容
     const target = props.card as unknown as Record<string, unknown>;
     Object.keys(target).forEach((k) => delete target[k]);

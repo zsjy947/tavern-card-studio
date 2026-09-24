@@ -14,6 +14,7 @@ export interface InsertOptions {
   /** 插入位置：开场白末尾（默认）或描述末尾 */
   target?: 'first_mes' | 'description';
   charName?: string;
+  userName?: string;
 }
 
 export interface InsertResult {
@@ -22,21 +23,21 @@ export interface InsertResult {
 }
 
 /** 渲染完整 HTML 文档片段（html + css + js 内联），变量替换初始值 */
-export function renderStatusbarHtml(payload: StatusbarPayload, vars: Record<string, string>, charName = '{{char}}'): string {
+export function renderStatusbarHtml(payload: StatusbarPayload, vars: Record<string, string>, charName = '{{char}}', userName = '{{user}}'): string {
   const scope: Record<string, string> = {};
   for (const v of payload.variables) scope[v.key] = vars[v.key] ?? v.initial;
   if (charName && !vars.char_name) scope.char_name = charName;
-  const html = renderTemplate(payload.html, { vars: scope, char: charName });
+  const html = renderTemplate(payload.html, { vars: scope, char: charName, user: userName });
   const css = payload.css;
   const js = payload.js;
   return `<div class="tcs-statusbar">${html}<style>${css}</style><script>${js}</script></div>`;
 }
 
 /** 生成配套的正则脚本（占位 tag → 渲染 HTML） */
-export function buildStatusbarRegex(payload: StatusbarPayload, vars: Record<string, string>, charName = '{{char}}'): RegexScript {
+export function buildStatusbarRegex(payload: StatusbarPayload, vars: Record<string, string>, charName = '{{char}}', userName = '{{user}}'): RegexScript {
   const tag = payload.tag;
   const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const html = renderStatusbarHtml(payload, vars, charName)
+  const html = renderStatusbarHtml(payload, vars, charName, userName)
     // 正则 replaceString 里 $ 有特殊含义，转义为 $$
     .replace(/\$/g, '$$$$')
     // 换行转 \n 字面量（ST replaceString 支持的写法）
@@ -83,6 +84,7 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   const data = next.data as Record<string, unknown>;
   const vars = opts.variables ?? {};
   const charName = opts.charName ?? '{{char}}';
+  const userName = opts.userName ?? '{{user}}';
   const target = opts.target ?? 'first_mes';
 
   // ① 占位 tag
@@ -95,7 +97,7 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   // ② 正则脚本（渲染同一 tag 的旧脚本会被替换）
   const ext = (data.extensions ?? {}) as { regex_scripts?: RegexScript[] };
   const scripts = ext.regex_scripts ?? [];
-  const regex = buildStatusbarRegex(payload, vars, charName);
+  const regex = buildStatusbarRegex(payload, vars, charName, userName);
   const normalize = (s: string) => s.replace(/\\\//g, '/').replace(/^\/|\/[a-z]*$/g, '');
   const idx = scripts.findIndex((s) => normalize(s.findRegex).includes(payload.tag));
   if (idx >= 0) scripts[idx] = regex;

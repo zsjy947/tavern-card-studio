@@ -30,6 +30,7 @@ export function useCardHistory<T extends object>(initial: T): CardHistory<T> {
   const canRedo = ref(false);
   let current: T | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingValue: T | null = null;
   let hotkeyTarget: Window | null = null;
   let applyFn: ((v: T) => void) | null = null;
 
@@ -45,34 +46,38 @@ export function useCardHistory<T extends object>(initial: T): CardHistory<T> {
   function reset(value: T) {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = null;
+    pendingValue = null;
     undoStack.value = [];
     redoStack.value = [];
     current = clone(value);
     syncFlags();
   }
 
+  /** 把节流中的待提交快照立即落栈（撤销前必须调用，否则最近的编辑会丢） */
+  function flushPending() {
+    if (!debounceTimer) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+    const value = pendingValue;
+    pendingValue = null;
+    if (!value || !current) return;
+    if (JSON.stringify(current) === JSON.stringify(value)) return;
+    undoStack.value.push(current);
+    if (undoStack.value.length > MAX_SNAPSHOTS) undoStack.value.shift();
+    redoStack.value = [];
+    current = clone(value);
+    syncFlags();
+  }
+
   function commit(value: T) {
+    pendingValue = clone(value);
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      if (!current) {
-        current = clone(value);
-        return;
-      }
-      if (JSON.stringify(current) === JSON.stringify(value)) return; // 无变化不入栈
-      undoStack.value.push(current);
-      if (undoStack.value.length > MAX_SNAPSHOTS) undoStack.value.shift();
-      redoStack.value = []; // 新编辑分支丢弃重做栈
-      current = clone(value);
-      syncFlags();
-    }, COMMIT_DEBOUNCE_MS);
+    // 到点直接走 flushPending（它负责置空 debounceTimer 并落栈）
+    debounceTimer = setTimeout(flushPending, COMMIT_DEBOUNCE_MS);
   }
 
   function undo(): T | null {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
+    flushPending();
     const prev = undoStack.value.pop();
     if (!prev || !current) return null;
     redoStack.value.push(current);
@@ -82,6 +87,7 @@ export function useCardHistory<T extends object>(initial: T): CardHistory<T> {
   }
 
   function redo(): T | null {
+    flushPending();
     const next = redoStack.value.pop();
     if (!next || !current) return null;
     undoStack.value.push(current);

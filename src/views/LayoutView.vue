@@ -9,6 +9,7 @@ import {
   AlbumsOutline, SwapHorizontalOutline, CreateOutline, ColorPaletteOutline,
   LayersOutline, CloudOutline, MedicalOutline, BookOutline, StatsChartOutline,
   SettingsOutline, SparklesOutline, TerminalOutline, GitCompareOutline,
+  SchoolOutline,
 } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
 import { isTauri } from '@/db/tauri';
@@ -36,6 +37,7 @@ const menuOptions = computed(() => [
   { label: '同人卡工坊', key: '/novel', icon: icon(BookOutline) },
   { label: '统计看板', key: '/stats', icon: icon(StatsChartOutline) },
   { label: '设置与备份', key: '/settings', icon: icon(SettingsOutline) },
+  { label: '使用指南', key: '/guide', icon: icon(SchoolOutline) },
 ]);
 
 const activeKey = computed(() => `/${(route.path.split('/')[1] ?? 'library')}`);

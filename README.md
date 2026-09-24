@@ -11,7 +11,7 @@
 ```bash
 npm install
 npm run dev        # 浏览器模式（IndexedDB 兜底存储）
-npm test           # vitest：83 个用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/epub/服务层集成）
+npm test           # vitest：111 个用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/epub/服务层集成/社区卡宽容导入）
 npm run typecheck  # vue-tsc
 npm run build      # 生产构建
 ```
@@ -41,7 +41,8 @@ Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插
 | 同人卡工坊 | txt/epub 导入 → 章节切分 → 角色扫描（边缀折叠词频）→ 上下文检索（等距采样）→ 抽卡+世界书六类 → 文风蒸馏 → 开场白 → user 人设；项目化保存断点续跑 |
 | 版本管理 | 保存自动快照（上限 50）、版本列表、两版 diff、回滚 |
 | 统计看板 | 卡数/模板/体积/token 分布/AI 调用趋势与功能排行 |
-| 设置与备份 | 全量备份导出/导入 zip（合并或清空恢复）、运行环境说明 |
+| 设置与备份 | 全量备份导出/导入 zip（合并或清空恢复）、运行环境说明、PNG 双写等偏好 |
+| 使用指南 | 面向新手：每个字段/选项的作用 + 它会以什么方式注入 SillyTavern（字段速查/世界书/正则/脚本/常见问题） |
 
 ## 工程结构
 
@@ -59,11 +60,11 @@ Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插
 │   │   ├── novel/  # txt/epub 解析、章节、角色扫描、上下文采样
 │   │   └── diag/   # 静态检查
 │   ├── db/         # 存储抽象：Memory / IndexedDB / Tauri SQLite
-│   ├── services/   # 业务服务（卡片/模板/AI/美化/诊断/工坊/备份）
+│   ├── services/   # 业务服务（卡片/模板/AI/美化/诊断/工坊/备份/偏好）
 │   ├── builtins/   # 内置模板资产（首启播种到库，可复制修改）
 │   ├── stores/     # Pinia（workspace）
 │   ├── components/ # TokenBadge / FieldAiButton / HtmlPreview / CodeEditor / CardCover
-│   └── views/      # 11 个页面 + editor 六 Tab
+│   └── views/      # 12 个页面（含使用指南）+ editor 六 Tab
 ├── src-tauri/      # Tauri 2 壳（NSIS、便携模式）
 ├── tests/          # 服务层集成测试
 └── plans/          # 设计规划与优化文档

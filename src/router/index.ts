@@ -21,6 +21,7 @@ export const router = createRouter({
         { path: 'novel', name: 'novel', component: () => import('@/views/NovelWorkshopView.vue'), meta: { title: '同人卡工坊' } },
         { path: 'stats', name: 'stats', component: () => import('@/views/StatsView.vue'), meta: { title: '统计看板' } },
         { path: 'settings', name: 'settings', component: () => import('@/views/SettingsView.vue'), meta: { title: '设置与备份' } },
+        { path: 'guide', name: 'guide', component: () => import('@/views/GuideView.vue'), meta: { title: '使用指南' } },
       ],
     },
   ],

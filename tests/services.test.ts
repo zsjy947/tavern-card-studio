@@ -8,8 +8,9 @@ setStore(new MemoryStore());
 
 import * as cardService from '@/services/cardService';
 import { parseLooseCard, dataHash } from '@/core/card';
-import { insertStatusbar, renderStatusbarHtml, normalizeImageLink, buildStatusbarRegex } from '@/services/beautifyService';
-import { SIMPLE_STATUSBAR, simpleStatusbarPayload } from './fixtures/statusbar';
+import { insertStatusbar, renderStatusbarHtml, normalizeImageLink, buildStatusbarRegex, renameStatusbarVariable, buildStatusbarWorldinfo } from '@/services/beautifyService';
+import { builtinStatusbarTemplates, type StatusbarPayload } from '@/builtins/statusbarTemplates';
+import { SIMPLE_STATUSBAR, simpleStatusbarPayload, radarStatusbarPayload } from './fixtures/statusbar';
 import { exportBackup, importBackup } from '@/services/backupService';
 import { ensureSeeded, listTemplates } from '@/services/templateService';
 import { staticDiagnose } from '@/services/diagService';
@@ -127,7 +128,53 @@ describe('beautifyService 三件套', () => {
     expect(normalizeImageLink('https://img.example.com/a.png').kind).toBe('http');
     expect(normalizeImageLink('data:image/png;base64,xxx').warning).toBeTruthy();
   });
+
+  it('变量改名重写器：getvar/js 直读/previewMock 全同步', () => {
+    const next = renameStatusbarVariable(simpleStatusbarPayload, 'money', 'spirit_stone');
+    expect(next.html).toContain('{{getvar::spirit_stone}}');
+    expect(next.html).not.toContain('{{getvar::money}}');
+    expect(next.worldinfoEntry.content).toContain('spirit_stone');
+    expect(next.variables.find((v) => v.key === 'spirit_stone')).toBeTruthy();
+    expect(next.variables.find((v) => v.key === 'money')).toBeUndefined();
+    // 原对象不被修改
+    expect(simpleStatusbarPayload.html).toContain('{{getvar::money}}');
+    // 改名后渲染与取值链路一致
+    const html = renderStatusbarHtml(next, { spirit_stone: '888' }, '小雪');
+    expect(html).toContain('888');
+    expect(html).not.toContain('{{getvar::spirit_stone}}');
+  });
+
+  it('变量改名重写器：非法 key 与撞名报错', () => {
+    expect(() => renameStatusbarVariable(simpleStatusbarPayload, 'money', '9bad')).toThrow();
+    expect(() => renameStatusbarVariable(simpleStatusbarPayload, 'money', 'favor')).toThrow('已存在');
+    expect(() => renameStatusbarVariable(simpleStatusbarPayload, 'not_exist', 'other')).toThrow('不存在');
+  });
+
+  it('六维模板 js 按 variables 注入键表，改名后仍可取值', () => {
+    const renamed = renameStatusbarVariable(radarStatusbarPayload, 'stat_str', 'stat_power');
+    const html = renderStatusbarHtml(renamed, { stat_power: '77' });
+    // 注入的键表来自 variables（含改名后的 key）
+    expect(html).toContain('["stat_power","stat_agi","stat_con","stat_int","stat_per","stat_cha"]');
+    expect(html).not.toContain('__TCS_STAT_KEYS__');
+    expect(renamed.variables.find((v) => v.group === 'stat')?.key).toBe('stat_power');
+  });
+
+  it('世界书说明按分组列出变量', () => {
+    const entry = buildStatusbarWorldinfo(radarStatusbarPayload);
+    expect(entry.content).toContain('stat_str(力量)');
+    const ensemble = buildStatusbarWorldinfo(
+      builtinPayload('tpl-sb-ensemble'),
+    );
+    expect(ensemble.content).toMatch(/角色A：g1_name/);
+    expect(ensemble.content).toMatch(/角色C：/);
+  });
 });
+
+/** 从内置模板取 payload 的便捷函数 */
+function builtinPayload(id: string) {
+  const row = builtinStatusbarTemplates().find((t) => t.id === id)!;
+  return row.payload as StatusbarPayload;
+}
 
 describe('备份', () => {
   it('导出 → 清空恢复 → 数据一致', async () => {

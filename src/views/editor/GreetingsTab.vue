@@ -53,7 +53,7 @@ const previewHtml = computed(() => {
   <NTabs type="segment" size="small" default-value="fields">
     <NTab name="fields" tab="字段编辑">
       <NForm label-placement="top" size="small" style="max-width: 860px">
-        <NFormItem label="角色描述（description）——人设核心">
+        <NFormItem label="描述（description）——单人卡人设核心 / 多人卡世界与规则总述（多人卡可留空，成员设定放世界书）">
           <div class="field-block">
             <div class="field-toolbar">
               <TokenBadge :text="String(data.description ?? '')" :warn-at="3000" />

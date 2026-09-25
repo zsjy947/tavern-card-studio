@@ -6,7 +6,7 @@
  */
 import type { AnyCard, BookEntry, RegexScript } from '@/core/card';
 import { renderTemplate } from '@/core/template';
-import type { StatusbarPayload } from '@/builtins/statusbarTemplates';
+import type { StatusbarPayload, StatusbarVariable } from '@/builtins/statusbarTemplates';
 
 export interface InsertOptions {
   /** 变量值覆盖（key → value） */
@@ -27,9 +27,11 @@ export function renderStatusbarHtml(payload: StatusbarPayload, vars: Record<stri
   const scope: Record<string, string> = {};
   for (const v of payload.variables) scope[v.key] = vars[v.key] ?? v.initial;
   if (charName && !vars.char_name) scope.char_name = charName;
+  // 六维模板 js 的属性键表在渲染时按 variables 注入（group==='stat' 的顺序），改名后无需改 js
+  const statKeys = payload.variables.filter((v) => v.group === 'stat').map((v) => v.key);
   const html = renderTemplate(payload.html, { vars: scope, char: charName, user: userName });
   const css = payload.css;
-  const js = payload.js;
+  const js = payload.js.replaceAll('__TCS_STAT_KEYS__', JSON.stringify(statKeys));
   return `<div class="tcs-statusbar">${html}<style>${css}</style><script>${js}</script></div>`;
 }
 
@@ -59,9 +61,19 @@ export function buildStatusbarRegex(payload: StatusbarPayload, vars: Record<stri
   };
 }
 
-/** 生成配套的世界书条目（规则说明，蓝灯） */
+/** 生成配套的世界书条目（规则说明，蓝灯）；变量按 group 分组列出 */
 export function buildStatusbarWorldinfo(payload: StatusbarPayload): BookEntry {
-  const varList = payload.variables.map((v) => `${v.key}(${v.label})`).join('、');
+  const fmt = (v: StatusbarVariable) => `${v.key}(${v.label})`;
+  const groups = [...new Set(payload.variables.map((v) => v.group ?? ''))];
+  const varList = groups.every((g) => g === '')
+    ? payload.variables.map(fmt).join('、')
+    : groups
+      .map((g) => {
+        const vs = payload.variables.filter((v) => (v.group ?? '') === g).map(fmt).join('、');
+        return g ? `${g}：${vs}` : vs;
+      })
+      .filter(Boolean)
+      .join('；');
   return {
     id: Date.now() % 100000,
     keys: payload.worldinfoEntry.keys,
@@ -76,6 +88,44 @@ export function buildStatusbarWorldinfo(payload: StatusbarPayload): BookEntry {
     use_regex: false,
     extensions: { position: 0, exclude_recursion: false, display_index: 900, probability: 100, useProbability: true, depth: 4, selectiveLogic: 0 },
   };
+}
+
+/* ---------------- 变量改名重写器 ---------------- */
+
+const VAR_KEY_RE = /^[a-z_][a-z0-9_]*$/;
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 变量改名：重写 payload 内对该变量的全部引用并同步 variables/previewMock。
+ * - {{getvar::old}} → {{getvar::new}}（html / worldinfoEntry.content / css 等全文）
+ * - js 对象键名直读（\bold\b 词边界，如 v.stat_str / 'g1_name' 字符串）
+ * 返回新 payload（不改原对象）；改名非法或与现有 key 冲突时抛错。
+ */
+export function renameStatusbarVariable(payload: StatusbarPayload, oldKey: string, newKey: string): StatusbarPayload {
+  if (oldKey === newKey) return structuredClone(payload);
+  if (!VAR_KEY_RE.test(newKey)) throw new Error(`变量 key「${newKey}」非法：需小写字母/下划线开头，仅含小写字母、数字、下划线`);
+  if (payload.variables.some((v) => v.key === newKey)) throw new Error(`变量 key「${newKey}」已存在`);
+  const next = structuredClone(payload);
+  const getVarRe = new RegExp(`\\{\\{getvar::${escapeRe(oldKey)}\\}\\}`, 'g');
+  const wordRe = new RegExp(`\\b${escapeRe(oldKey)}\\b`, 'g');
+  const rewrite = (s: string) => s.replace(getVarRe, `{{getvar::${newKey}}}`);
+  next.html = rewrite(next.html);
+  next.css = rewrite(next.css);
+  next.js = next.js.replace(wordRe, newKey);
+  // 世界书说明：既替换 getvar 占位，也替换散文中的 key 提述（如「金钱(money)」），保证插入的说明同步
+  next.worldinfoEntry.content = rewrite(next.worldinfoEntry.content).replace(wordRe, newKey);
+  const v = next.variables.find((x) => x.key === oldKey);
+  if (!v) throw new Error(`变量「${oldKey}」不存在`);
+  v.key = newKey;
+  if (Object.prototype.hasOwnProperty.call(next.previewMock, oldKey)) {
+    const value = next.previewMock[oldKey]!;
+    delete next.previewMock[oldKey];
+    next.previewMock[newKey] = value;
+  }
+  return next;
 }
 
 /** 一键插入三件套（返回新卡对象，不修改原卡） */
@@ -98,6 +148,8 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   const ext = (data.extensions ?? {}) as { regex_scripts?: RegexScript[] };
   const scripts = ext.regex_scripts ?? [];
   const regex = buildStatusbarRegex(payload, vars, charName, userName);
+  // 元数据：StatusbarPayload 随脚本入库（ST 忽略多余字段），模板中心可反向「沉淀」为状态栏模板
+  (regex as unknown as { extensions: { tcsStatusbarPayload: StatusbarPayload } }).extensions = { tcsStatusbarPayload: payload };
   const normalize = (s: string) => s.replace(/\\\//g, '/').replace(/^\/|\/[a-z]*$/g, '');
   const idx = scripts.findIndex((s) => normalize(s.findRegex).includes(payload.tag));
   if (idx >= 0) scripts[idx] = regex;
@@ -109,7 +161,9 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   let insertedWi = false;
   const book = (data.character_book ?? { name: '', entries: [] }) as { name?: string; entries: BookEntry[] };
   if (!book.entries.some((e) => e.comment === payload.worldinfoEntry.comment)) {
-    book.entries.push(buildStatusbarWorldinfo(payload));
+    const wi = buildStatusbarWorldinfo(payload);
+    (wi.extensions as Record<string, unknown>).tcsStatusbarPayload = payload;
+    book.entries.push(wi);
     insertedWi = true;
   }
   data.character_book = book;

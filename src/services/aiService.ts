@@ -7,6 +7,7 @@
  */
 import { getStore, genId } from '@/db';
 import { LlmClient, extractJson, type ChannelConfig, type ChatMessage } from '@/core/llm';
+import { fetchImplForPlatform } from '@/core/llm/tauriStream';
 import { Semaphore } from '@/core/llm/semaphore';
 import type { AiChannelRow, AiUsageLogRow } from './types';
 
@@ -35,21 +36,30 @@ export async function deleteChannel(id: string): Promise<void> {
   await (await getStore()).delete('ai_channels', id);
 }
 
+/** 渠道行 → 客户端配置（桌面端自动走 Rust 流式代理 fetch） */
+export function toChannelConfig(c: Pick<AiChannelRow, 'id' | 'name' | 'kind' | 'baseUrl' | 'apiKey' | 'modelId' | 'isActive'>): ChannelConfig {
+  return {
+    id: c.id,
+    name: c.name,
+    kind: c.kind,
+    baseUrl: c.baseUrl,
+    apiKey: c.apiKey,
+    modelId: c.modelId,
+    isActive: c.isActive,
+  };
+}
+
+/** 构造 LlmClient（桌面端注入 Rust 流式代理，浏览器用原生 fetch） */
+export function makeLlmClient(c: Pick<AiChannelRow, 'id' | 'name' | 'kind' | 'baseUrl' | 'apiKey' | 'modelId' | 'isActive'>): LlmClient {
+  return new LlmClient(toChannelConfig(c), fetchImplForPlatform());
+}
+
 /** 当前激活渠道 → LlmClient */
 export async function getActiveClient(kind: 'text' | 'image'): Promise<{ client: LlmClient; channel: AiChannelRow }> {
   const channels = await listChannels();
   const active = channels.find((c) => c.kind === kind && c.isActive) ?? channels.find((c) => c.kind === kind);
   if (!active) throw new Error(`没有可用的${kind === 'text' ? '文本' : '生图'}渠道，请先在 AI 中心配置`);
-  const config: ChannelConfig = {
-    id: active.id,
-    name: active.name,
-    kind: active.kind,
-    baseUrl: active.baseUrl,
-    apiKey: active.apiKey,
-    modelId: active.modelId,
-    isActive: active.isActive,
-  };
-  return { client: new LlmClient(config), channel: active };
+  return { client: makeLlmClient(active), channel: active };
 }
 
 /* ---------------- 并发限制 ---------------- */

@@ -17,6 +17,7 @@ import { useCardHistory } from '@/composables/useCardHistory';
 import BasicTab from './editor/BasicTab.vue';
 import GreetingsTab from './editor/GreetingsTab.vue';
 import WorldbookTab from './editor/WorldbookTab.vue';
+import CharacterMembersTab from './editor/CharacterMembersTab.vue';
 import RegexTab from './editor/RegexTab.vue';
 import ScriptsTab from './editor/ScriptsTab.vue';
 import ExtensionsTab from './editor/ExtensionsTab.vue';
@@ -203,6 +204,9 @@ async function rollback(v: CardVersionRow) {
       </NTabPane>
       <NTabPane name="worldbook" tab="世界书">
         <WorldbookTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="members" tab="角色成员">
+        <CharacterMembersTab :card="card" @change="markDirty" />
       </NTabPane>
       <NTabPane name="regex" tab="正则">
         <RegexTab :card="card" @change="markDirty" />

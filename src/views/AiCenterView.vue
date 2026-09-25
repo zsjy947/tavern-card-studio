@@ -7,8 +7,7 @@ import {
 } from 'naive-ui';
 import { AddOutline, TrashOutline, FlashOutline, CloudDownloadOutline } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
-import { saveChannel, deleteChannel, listUsage } from '@/services/aiService';
-import { LlmClient } from '@/core/llm';
+import { saveChannel, deleteChannel, listUsage, makeLlmClient } from '@/services/aiService';
 import { generateImageOpenAi, generateImageNovelAi } from '@/core/llm/image';
 import type { AiChannelRow, AiUsageLogRow } from '@/services/types';
 
@@ -58,7 +57,7 @@ async function save() {
 async function testConn(c: AiChannelRow) {
   testing.value = c.id;
   try {
-    const client = new LlmClient(toConfig(c));
+    const client = makeLlmClient(c);
     const r = await client.testConnection();
     r.ok ? message.success(`${c.name}：${r.message}`) : message.error(`${c.name}：${r.message}`);
   } catch (e) {
@@ -71,7 +70,7 @@ async function testConn(c: AiChannelRow) {
 async function pullModels(c: AiChannelRow) {
   testing.value = c.id;
   try {
-    const client = new LlmClient(toConfig(c));
+    const client = makeLlmClient(c);
     models.value = await client.listModels();
     message.success(`拉到 ${models.value.length} 个模型，表单里可选择`);
     openEdit(c);
@@ -80,10 +79,6 @@ async function pullModels(c: AiChannelRow) {
   } finally {
     testing.value = '';
   }
-}
-
-function toConfig(c: AiChannelRow) {
-  return { id: c.id, name: c.name, kind: c.kind, baseUrl: c.baseUrl, apiKey: c.apiKey, modelId: c.modelId, isActive: c.isActive };
 }
 
 const usageColumns = [

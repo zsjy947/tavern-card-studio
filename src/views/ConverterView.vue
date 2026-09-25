@@ -95,8 +95,8 @@ async function convertJsonToPng() {
         const card = parseLooseCard(JSON.parse(text));
         const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
         const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
-        if (files.length === 1 && !basePng) {
-          // 单文件也走 zip 太绕，直接下载 png
+        if (files.length === 1) {
+          // 单文件直接下载 png（无论是否指定底图），避免产物困在永不落地的 zip 里
           downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
         } else {
           zip.file(out, png);

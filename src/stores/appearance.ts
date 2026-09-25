@@ -113,8 +113,10 @@ export const useAppearance = defineStore('appearance', () => {
     }
 
     // ② 已装字体列表（fontService 内部自带一次重试）
+    let listLoaded = false;
     try {
       installedFonts.value = await listInstalled();
+      listLoaded = true;
     } catch (e) {
       console.error('字体列表加载失败：', e);
     }
@@ -125,7 +127,7 @@ export const useAppearance = defineStore('appearance', () => {
       localStorage.setItem(LS_THEME, prefTheme);
     }
 
-    // ④ 字体偏好应用：偏好字体必须仍已安装且文件可读，否则回退默认
+    // ④ 字体偏好应用：仅在列表加载成功的前提下校验偏好字体，否则保留现状待下次自愈
     const meta = installedFonts.value.find((x) => x.id === prefFont);
     if (prefFont && meta) {
       fontId.value = prefFont;
@@ -140,7 +142,7 @@ export const useAppearance = defineStore('appearance', () => {
       } catch (e) {
         console.error('字体文件校验失败：', e);
       }
-    } else if (fontId.value) {
+    } else if (fontId.value && listLoaded) {
       clearFontPreference();
     }
 

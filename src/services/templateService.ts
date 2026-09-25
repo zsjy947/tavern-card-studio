@@ -44,6 +44,11 @@ export async function ensureSeeded(): Promise<void> {
   seededInMemory = true;
 }
 
+/** 备份导入（尤其 wipe）清掉 templates 表后调用：允许进程内重新补种内置模板 */
+export function resetSeededFlag(): void {
+  seededInMemory = false;
+}
+
 export async function listTemplates(kind?: TemplateKind): Promise<TemplateRow[]> {
   await ensureSeeded();
   const all = await (await getStore()).list<TemplateRow>('templates');

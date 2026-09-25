@@ -163,6 +163,8 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   const book = (data.character_book ?? { name: '', entries: [] }) as { name?: string; entries: BookEntry[] };
   if (!book.entries.some((e) => e.comment === payload.worldinfoEntry.comment)) {
     const wi = buildStatusbarWorldinfo(payload);
+    // 与卡内既有条目 id 空间协调，避免 Date.now() 撞 id
+    wi.id = book.entries.reduce((mx, e) => Math.max(mx, Number(e.id ?? -1)), -1) + 1;
     (wi.extensions as Record<string, unknown>).tcsStatusbarPayload = payload;
     book.entries.push(wi);
     insertedWi = true;

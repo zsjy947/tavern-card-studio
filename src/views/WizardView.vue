@@ -100,6 +100,7 @@ async function genMemberEntries(targets?: WizardMember[]) {
         .replaceAll('{CONTEXT}', contextText() + (briefExpanded.value ? `\n\n【扩写设定】\n${briefExpanded.value}` : '')),
       jsonSchemaHint: '[{"comment":"成员名","keys":["称呼"],"content":"YAML","constant":false}]',
     });
+    if (!Array.isArray(entries)) throw new Error('生成结果不是 JSON 数组，请重试或手填 YAML');
     let filled = 0;
     for (const m of list) {
       const hit = entries.find((e) => (e.comment ?? '').trim() === m.name.trim())
@@ -214,13 +215,13 @@ async function expandBrief() {
   }
 }
 
-async function genField(key: string, label: string) {
+async function genField(key: string, label: string): Promise<boolean> {
   if (busy.value) {
     message.warning('已有生成任务进行中，请等待完成');
-    return;
+    return false;
   }
   const p = await findPrompt(`field:${key}.generate`) ?? await findPrompt('field:description.generate');
-  if (!p) return;
+  if (!p) return false;
   busy.value = key;
   try {
     outputs.value[key] = await runFieldAi({
@@ -232,20 +233,25 @@ async function genField(key: string, label: string) {
         .replaceAll('{NAME}', cardName.value)
         .replaceAll('{CONTEXT}', contextText()),
     });
+    return true;
   } catch (e) {
     message.error((e as Error).message);
+    return false;
   } finally {
     busy.value = '';
   }
 }
 
 async function genAll() {
-  for (const f of genFields.value) {
-    if (outputs.value[f.key]?.trim()) continue;
+  let ok = 0;
+  const targets = genFields.value.filter((f) => !outputs.value[f.key]?.trim());
+  for (const f of targets) {
     // eslint-disable-next-line no-await-in-loop
-    await genField(f.key, f.label);
+    if (await genField(f.key, f.label)) ok++;
   }
-  message.success('全部生成完毕，请逐项确认');
+  if (ok === targets.length) message.success('全部生成完毕，请逐项确认');
+  else if (ok > 0) message.warning(`生成完成 ${ok}/${targets.length}，失败字段可单独重试或手写`);
+  // 全部失败时 genField 内已逐项报错，不再追加成功提示
 }
 
 function addCustomField() {
@@ -287,38 +293,46 @@ function enterStep3() {
   }
 }
 
+const saving = ref(false);
+
 async function finish() {
+  if (saving.value) return;
   if (!canFinish.value) {
     message.error('至少需要角色名、描述与开场白（手填或 AI 生成均可）');
     return;
   }
-  const named = members.value.filter((m) => m.name.trim());
-  if (named.some((m) => !m.content.trim())) {
-    // 有成员但缺条目：入库前补齐（失败则中断，避免半成品卡）
-    await genMemberEntries(named.filter((m) => !m.content.trim()));
+  saving.value = true;
+  try {
+    const named = members.value.filter((m) => m.name.trim());
     if (named.some((m) => !m.content.trim())) {
-      message.error('仍有成员条目未生成（可手填 YAML 内容后重试，或删除该成员）');
-      return;
+      // 有成员但缺条目：入库前补齐（失败则中断，避免半成品卡）
+      await genMemberEntries(named.filter((m) => !m.content.trim()));
+      if (named.some((m) => !m.content.trim())) {
+        message.error('仍有成员条目未生成（可手填 YAML 内容后重试，或删除该成员）');
+        return;
+      }
     }
+    const card = blankCard(cardName.value.trim());
+    const d = card.data as Record<string, unknown>;
+    for (const [k, v] of Object.entries(outputs.value)) {
+      if (v.trim()) d[k] = v;
+    }
+    d.tags = [...new Set([...draftTags.value])];
+    // 成员清单 → character_book.entries（多人卡心智：成员设定全部进世界书）
+    if (named.length) {
+      const book = (d.character_book ?? { entries: [] }) as { entries?: unknown[] };
+      const existing = Array.isArray(book.entries) ? book.entries : [];
+      let nextId = existing.reduce<number>((mx, e) => Math.max(mx, Number((e as { id?: number }).id ?? -1)), -1) + 1;
+      book.entries = [...existing, ...named.map((m) => memberToEntry(m, nextId++))];
+      d.character_book = book;
+    }
+    const row = await cardService.createCard(cardName.value.trim(), card);
+    await ws.refreshCards(true);
+    message.success('整卡已生成并入库，去编辑器检查');
+    router.push(`/editor/${row.id}`);
+  } finally {
+    saving.value = false;
   }
-  const card = blankCard(cardName.value.trim());
-  const d = card.data as Record<string, unknown>;
-  for (const [k, v] of Object.entries(outputs.value)) {
-    if (v.trim()) d[k] = v;
-  }
-  d.tags = [...new Set([...draftTags.value])];
-  // 成员清单 → character_book.entries（多人卡心智：成员设定全部进世界书）
-  if (named.length) {
-    const book = (d.character_book ?? { entries: [] }) as { entries?: unknown[] };
-    const existing = Array.isArray(book.entries) ? book.entries : [];
-    let nextId = existing.reduce<number>((mx, e) => Math.max(mx, Number((e as { id?: number }).id ?? -1)), -1) + 1;
-    book.entries = [...existing, ...named.map((m) => memberToEntry(m, nextId++))];
-    d.character_book = book;
-  }
-  const row = await cardService.createCard(cardName.value.trim(), card);
-  await ws.refreshCards(true);
-  message.success('整卡已生成并入库，去编辑器检查');
-  router.push(`/editor/${row.id}`);
 }
 </script>
 
@@ -474,7 +488,7 @@ async function finish() {
       <template #action>
         <NSpace justify="space-between">
           <NButton size="small" @click="step = 2">上一步</NButton>
-          <NButton type="primary" size="small" :disabled="!canFinish" @click="finish">
+          <NButton type="primary" size="small" :loading="saving" :disabled="!canFinish" @click="finish">
             <template #icon><NIcon><CheckmarkOutline /></NIcon></template>生成整卡并入库
           </NButton>
         </NSpace>

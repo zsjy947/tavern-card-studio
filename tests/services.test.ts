@@ -10,7 +10,7 @@ import * as cardService from '@/services/cardService';
 import { parseLooseCard, dataHash } from '@/core/card';
 import { insertStatusbar, renderStatusbarHtml, normalizeImageLink, buildStatusbarRegex, renameStatusbarVariable, buildStatusbarWorldinfo } from '@/services/beautifyService';
 import { builtinStatusbarTemplates, type StatusbarPayload } from '@/builtins/statusbarTemplates';
-import { SIMPLE_STATUSBAR, simpleStatusbarPayload, radarStatusbarPayload } from './fixtures/statusbar';
+import { simpleStatusbarPayload, radarStatusbarPayload } from './fixtures/statusbar';
 import { exportBackup, importBackup } from '@/services/backupService';
 import { ensureSeeded, listTemplates } from '@/services/templateService';
 import { staticDiagnose } from '@/services/diagService';

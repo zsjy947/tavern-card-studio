@@ -4,6 +4,7 @@
  */
 import JSZip from 'jszip';
 import { getStore } from '@/db';
+import { resetSeededFlag } from './templateService';
 
 /** 不参与备份的表 */
 const BACKUP_EXCLUDED = new Set(['fonts', 'font_blobs']);
@@ -34,15 +35,19 @@ export async function importBackup(blob: Blob | Uint8Array, opts: { wipe?: boole
 
   const store = await getStore();
   const counts: Record<string, number> = {};
+  let touchedTemplates = false;
   for (const file of Object.values(zip.files)) {
     const m = /^tables\/(.+)\.json$/.exec(file.name);
     if (!m) continue;
     const table = m[1]!;
+    if (table === 'templates') touchedTemplates = true;
     const rows = JSON.parse(await file.async('string')) as { id: string }[];
     if (opts.wipe) await store.clear(table);
     await store.bulkPut(table, rows.map((r) => ({ id: r.id, value: r })));
     counts[table] = rows.length;
   }
+  // wipe 导入会清掉 templates 表：复位播种标记，让内置模板在下次访问时重新补种
+  if (touchedTemplates) resetSeededFlag();
   return { tables: counts };
 }
 

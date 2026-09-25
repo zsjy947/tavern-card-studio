@@ -9,6 +9,11 @@ describe('inspectLlmErrorBody', () => {
   it('旧网关 code/msg 错误体', () => {
     expect(inspectLlmErrorBody({ code: 401, msg: '鉴权失败' })).toBe('401: 鉴权失败');
   });
+  it('成功码 code:0/200 不当错误文案', () => {
+    // 无 choices 但 code 是成功值：报「缺少 choices」而非「0: success」
+    expect(inspectLlmErrorBody({ code: 0, message: 'success' })).toContain('choices');
+    expect(inspectLlmErrorBody({ code: '200', message: 'OK' })).toContain('choices');
+  });
   it('success:false 错误体', () => {
     expect(inspectLlmErrorBody({ success: false, message: '余额不足' })).toBe('余额不足');
   });
@@ -186,6 +191,18 @@ describe('LlmClient', () => {
     })) as unknown as typeof fetch);
     await expect(client.chat({ messages: [{ role: 'user', content: 'x' }], onDelta: () => {}, retries: 0 }))
       .rejects.toThrow('未收到任何文本');
+  });
+
+  it('SSE 截断流：结尾无换行的 data 行也被处理', async () => {
+    // 无 [DONE]、无结尾换行（截断流常见形态），最后一个事件含 finish_reason 与 usage
+    const sse = 'data: {"choices":[{"delta":{"content":"你好"}}]}';
+    const client = makeClient((async () => new Response(sse, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    })) as unknown as typeof fetch);
+    const r = await client.chat({ messages: [{ role: 'user', content: 'x' }], onDelta: () => {}, retries: 0 });
+    expect(r.text).toBe('你好');
+    expect(r.completionTokens).toBeGreaterThan(0);
   });
 
   it('超时参数 0 关闭对应超时（非流式 0 = 不限时）', async () => {

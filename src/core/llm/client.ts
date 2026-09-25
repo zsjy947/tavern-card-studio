@@ -95,11 +95,12 @@ function serverErrMsg(obj: unknown): string | null {
   if (typeof o.error === 'object' && o.error !== null) return serverErrMsg(o.error);
   if (o.success === false) return String(o.msg ?? o.message ?? JSON.stringify(o).slice(0, 200));
   const code = o.code;
-  const codeBad = typeof code === 'number' ? code !== 0 : code !== undefined && String(code).toUpperCase() !== 'OK';
-  if (code !== undefined && codeBad) {
+  const codeOk = typeof code === 'number' ? code === 0 : code !== undefined && ['0', '200', 'OK'].includes(String(code).toUpperCase());
+  if (code !== undefined && !codeOk) {
     return `${String(code)}: ${String(o.msg ?? o.message ?? JSON.stringify(o).slice(0, 160))}`;
   }
-  if (typeof o.message === 'string' && o.message) return o.message;
+  // 成功码存在时不把 message 当错误文案（如 {code:"0", message:"success"}）
+  if (code === undefined && typeof o.message === 'string' && o.message) return o.message;
   return null;
 }
 
@@ -142,6 +143,8 @@ export class LlmClient {
         attempt++;
         const backoff = Math.min(800 * 2 ** (attempt - 1), 15_000);
         await sleep(backoff);
+        // 退避期间被取消：立即抛出，不做无意义重试
+        if (options.signal?.aborted) throw new LlmError('请求已取消', undefined, false);
       }
     }
   }
@@ -176,7 +179,12 @@ export class LlmClient {
 
   /** 非流式路径：响应体校验（200 但非 OpenAI 形状 → 明确报错）+ 截断续写 */
   private async consumeJson(handle: ResponseHandle, options: ChatOptions, body: Record<string, unknown>, started: number): Promise<ChatResult> {
-    const json = (await handle.res.json()) as OpenAiChatBody;
+    let json: OpenAiChatBody;
+    try {
+      json = (await handle.res.json()) as OpenAiChatBody;
+    } catch {
+      throw new LlmError('响应不是有效 JSON（可能是网关错误页），请检查 Base URL 是否填到版本号一级', undefined, false);
+    }
     assertOpenAiShape(json);
     let text = json.choices?.[0]?.message?.content ?? '';
     const usage = json.usage ?? {};
@@ -222,11 +230,12 @@ export class LlmClient {
     let parseFailures = 0;
     const firstTokenMs = LlmClient.optMs(options.firstTokenTimeoutMs, DEFAULT_FIRST_TOKEN_TIMEOUT_MS);
     const idleMs = LlmClient.optMs(options.idleTimeoutMs, DEFAULT_IDLE_TIMEOUT_MS);
-    let deadlineMs = firstTokenMs;
+    let gotFirstChunk = false;
 
     try {
       for (;;) {
         let timedOut = false;
+        const deadlineMs = gotFirstChunk ? idleMs : firstTokenMs;
         const timer = deadlineMs > 0
           ? setTimeout(() => { timedOut = true; handle.ctrl.abort(); }, deadlineMs)
           : undefined;
@@ -236,10 +245,11 @@ export class LlmClient {
         } catch (e) {
           if (timedOut) {
             throw new LlmError(
-              deadlineMs === firstTokenMs
-                ? `首 token 超时：${Math.round(firstTokenMs / 1000)}s 内模型未开始输出（可检查模型是否可用）`
-                : `流式空闲超时：${Math.round(idleMs / 1000)}s 未收到新数据，连接已中断`,
-              undefined, true,
+              gotFirstChunk
+                ? `流式空闲超时：${Math.round(idleMs / 1000)}s 未收到新数据，连接已中断`
+                : `首 token 超时：${Math.round(firstTokenMs / 1000)}s 内模型未开始输出（可检查模型是否可用）`,
+              // 已产出内容的空闲超时不可重试：重试会导致 onDelta 重放/重复计费
+              undefined, !gotFirstChunk,
             );
           }
           if (options.signal?.aborted) throw new LlmError('请求已取消', undefined, false);
@@ -247,9 +257,9 @@ export class LlmClient {
         } finally {
           if (timer) clearTimeout(timer);
         }
-        deadlineMs = idleMs;
         const { done, value } = readResult;
         if (done) break;
+        if (value?.length) gotFirstChunk = true;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? '';
@@ -281,6 +291,29 @@ export class LlmClient {
             if (e instanceof LlmError) throw e;
             parseFailures++;
           }
+        }
+      }
+      // 收尾：冲刷残留的最后一行（截断流常见：无换行结尾的 data: 事件）
+      const tail = buffer.trim();
+      if (tail.startsWith('data:')) {
+        const payload = tail.slice(5).trim();
+        if (payload && payload !== '[DONE]') {
+          try {
+            const evt = JSON.parse(payload) as {
+              choices?: { delta?: { content?: string }, finish_reason?: string | null }[];
+              usage?: { prompt_tokens?: number; completion_tokens?: number };
+            };
+            const delta = evt.choices?.[0]?.delta?.content ?? '';
+            if (delta) {
+              full += delta;
+              options.onDelta?.(delta, full);
+            }
+            if (evt.choices?.[0]?.finish_reason) finishReason = evt.choices[0].finish_reason;
+            if (evt.usage) {
+              promptTokens = evt.usage.prompt_tokens ?? promptTokens;
+              completionTokens = evt.usage.completion_tokens ?? completionTokens;
+            }
+          } catch { parseFailures++; }
         }
       }
     } finally {

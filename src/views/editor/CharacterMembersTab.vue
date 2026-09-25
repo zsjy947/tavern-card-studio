@@ -56,10 +56,12 @@ function setRole(index: number, role: 'lead' | 'support') {
   const e = book.value.entries[index];
   if (!e) return;
   if (role === 'lead') {
-    patchEntry(index, { constant: true, keys: [] });
+    // 保留 keys：切回配角时不丢用户配置的触发词（constant 下 keys 不生效，无副作用）
+    patchEntry(index, { constant: true });
   } else {
     const name = entryName(e) || e.comment || '';
-    patchEntry(index, { constant: false, keys: name ? [name] : [] });
+    const merged = [...new Set([name, ...(e.keys ?? [])])].filter(Boolean);
+    patchEntry(index, { constant: false, keys: merged });
   }
 }
 

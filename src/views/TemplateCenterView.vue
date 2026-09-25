@@ -61,9 +61,13 @@ function preview(t: TemplateRow): string {
 }
 
 async function doClone(t: TemplateRow) {
-  await cloneTemplate(t.id);
-  await refresh();
-  message.success('已复制为可编辑副本');
+  try {
+    await cloneTemplate(t.id);
+    await refresh();
+    message.success('已复制为可编辑副本');
+  } catch (e) {
+    message.error((e as Error).message);
+  }
 }
 
 async function doDelete(t: TemplateRow) {
@@ -111,6 +115,8 @@ const editName = ref('');
 const editDesc = ref('');
 /** 工作副本（深拷贝 payload，保存时写回） */
 const editPayload = ref<Record<string, unknown>>({});
+/** builtin 编辑时自动落的副本 id：取消编辑则清掉，避免堆积垃圾副本 */
+let pendingCloneId: string | null = null;
 
 function clonePayload(p: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(p ?? {})) as Record<string, unknown>;
@@ -118,9 +124,16 @@ function clonePayload(p: unknown): Record<string, unknown> {
 
 async function openEdit(t: TemplateRow) {
   let target = t;
+  pendingCloneId = null;
   if (t.builtin) {
     // builtin 不可覆盖：自动创建可编辑副本后编辑副本
-    target = await cloneTemplate(t.id, `${t.name}（编辑副本）`);
+    try {
+      target = await cloneTemplate(t.id, `${t.name}（编辑副本）`);
+    } catch (e) {
+      message.error((e as Error).message);
+      return;
+    }
+    pendingCloneId = target.id;
     await refresh();
     message.info(`「${t.name}」是内置模板，已自动创建可编辑副本`);
   }
@@ -135,6 +148,7 @@ async function saveEdit() {
   if (!editId.value) return;
   try {
     await updateTemplate(editId.value, { name: editName.value, description: editDesc.value, payload: editPayload.value });
+    pendingCloneId = null; // 已保存，不再是待清理副本
     showEdit.value = false;
     await refresh();
     message.success('模板已保存');
@@ -142,6 +156,15 @@ async function saveEdit() {
     message.error((e as Error).message);
   }
 }
+
+// 取消编辑（未保存关闭）：清掉刚落的 builtin 副本
+watch(showEdit, (open) => {
+  if (!open && pendingCloneId) {
+    const id = pendingCloneId;
+    pendingCloneId = null;
+    void deleteTemplate(id).then(refresh).catch(() => undefined);
+  }
+});
 
 /* --- card 编辑辅助 --- */
 const cardFields = computed(() => (editPayload.value.fields as CardTemplateField[] | undefined) ?? []);
@@ -225,12 +248,14 @@ async function sinkFromCard() {
   const row = await cardService.getCard(sinkCardId.value);
   if (!row) return;
   const d = row.card.data as Record<string, unknown>;
+  // description/first_mes 是向导 canFinish 的硬性要求：沉淀模板始终保留这两个槽位
+  const baseKeys = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'post_history_instructions'];
   const payload: CardTemplatePayload = {
     spec: row.card.spec === 'chara_card_v3' ? 'v3' : 'v2',
     summary: `从卡片「${row.name}」沉淀`,
-    fields: ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'post_history_instructions']
-      .filter((k) => String(d[k] ?? '').trim())
-      .map((k) => ({ key: k, label: k, hint: String(d[k]).slice(0, 60), initial: String(d[k]) })),
+    fields: baseKeys
+      .filter((k) => k === 'description' || k === 'first_mes' || String(d[k] ?? '').trim())
+      .map((k) => ({ key: k, label: k, hint: k === 'description' || k === 'first_mes' ? '向导完成所必需' : String(d[k] ?? '').slice(0, 60), initial: String(d[k] ?? '') })),
     defaultTags: row.tags,
   };
   await saveTemplate({ kind: 'card', name: sinkName.value || `${row.name}（沉淀）`, payload });
@@ -246,7 +271,7 @@ async function sinkFromCard() {
   // 状态栏模板沉淀（需插入时带出的元数据；旧卡无元数据则跳过）
   let sbSaved = false;
   if (sinkStatusbar.value) {
-    await saveTemplate({ kind: 'statusbar', name: `${sinkStatusbar.value.payload.tag.replace(/[<>][/]/g, '')}（沉淀）`, payload: sinkStatusbar.value.payload });
+    await saveTemplate({ kind: 'statusbar', name: `${sinkStatusbar.value.payload.tag.replace(/[<>]/g, '')}（沉淀）`, payload: sinkStatusbar.value.payload });
     sbSaved = true;
   }
 
@@ -374,7 +399,7 @@ async function sinkFromCard() {
           </NFormItem>
           <NFormItem label="作用位置（0 正文 / 1 用户输入 / 2 AI 输出）">
             <NInput :value="(regexScript.placement ?? []).join(',')"
-              @update:value="(v: string) => patchRegex({ placement: v.split(/[,，\s]+/).map((x) => Number(x)).filter((n) => Number.isInteger(n)) })" />
+              @update:value="(v: string) => patchRegex({ placement: v.split(/[,，\s]+/).filter((s) => s.trim() !== '').map(Number).filter((n) => Number.isInteger(n)) })" />
           </NFormItem>
           <NFormItem label="说明">
             <NInput type="textarea" :rows="2" :value="String(editPayload.note ?? '')" @update:value="(v: string) => (editPayload.note = v)" />

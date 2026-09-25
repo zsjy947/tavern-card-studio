@@ -38,14 +38,26 @@ const draft = ref<StatusbarPayload | null>(null);
 
 const chosenCard = computed(() => cards.value.find((c) => c.id === chosenCardId.value) ?? null);
 
+/** payload 形状归一：自建/导入模板可能缺 variables/previewMock/worldinfoEntry */
+function normalizeStatusbar(p: StatusbarPayload): StatusbarPayload {
+  return {
+    ...p,
+    variables: Array.isArray(p.variables) ? p.variables : [],
+    previewMock: p.previewMock && typeof p.previewMock === 'object' ? p.previewMock : {},
+    worldinfoEntry: p.worldinfoEntry && typeof p.worldinfoEntry === 'object'
+      ? p.worldinfoEntry
+      : { comment: '状态栏规则（蓝灯）', keys: ['状态栏'], content: '' },
+  };
+}
+
 function chooseTpl(id: string) {
   chosenTplId.value = id;
   const p = templates.value.find((t) => t.id === id)?.payload as StatusbarPayload | undefined;
   // payload 是深层响应式代理，structuredClone 会抛 DataCloneError，用 JSON 深拷贝
-  draft.value = p ? (JSON.parse(JSON.stringify(p)) as StatusbarPayload) : null;
+  draft.value = p ? normalizeStatusbar(JSON.parse(JSON.stringify(p)) as StatusbarPayload) : null;
   varValues.value = {};
-  if (p) for (const v of p.variables) varValues.value[v.key] = p.previewMock[v.key] ?? v.initial;
-  customCss.value = p?.css ?? '';
+  if (p) for (const v of draft.value!.variables) varValues.value[v.key] = draft.value!.previewMock[v.key] ?? v.initial;
+  customCss.value = draft.value?.css ?? '';
 }
 
 const previewVars = computed(() => {
@@ -133,15 +145,23 @@ async function insert() {
   }
   const row = await cardService.getCard(chosenCard.value.id);
   if (!row) return;
-  const { card: next, inserted: ins } = insertStatusbar(row.card, draft.value, {
-    variables: previewVars.value,
-    charName: chosenCard.value.name,
-    userName: ws.userName,
-  });
+  // 第 3 步编辑的自定义 CSS 是用户确认过的最终样式，插入前合并进 payload
+  draft.value.css = customCss.value;
+  let next: import('@/core/card').AnyCard;
+  try {
+    next = insertStatusbar(row.card, draft.value, {
+      variables: previewVars.value,
+      charName: chosenCard.value.name,
+      userName: ws.userName,
+    }).card;
+  } catch (e) {
+    message.error(`插入失败：${(e as Error).message}`);
+    return;
+  }
   await cardService.saveCard(row.id, next, { note: `美化：插入状态栏 ${draft.value.tag}`, keepCover: true });
   await ws.refreshCards(true);
   inserted.value = true;
-  message.success(`三件套已插入并保存${ins.tag ? '' : '（tag 已存在，跳过重复插入）'}；导出 PNG 后在 SillyTavern 中验证渲染`);
+  message.success('三件套已插入并保存；导出 PNG 后在 SillyTavern 中验证渲染');
 }
 </script>
 
@@ -187,6 +207,7 @@ async function insert() {
                     <template #prefix><NIcon><ImageOutline /></NIcon></template>
                   </NInput>
                   <NInput v-else-if="v.key === 'radar_points'" :value="varValues[v.key]" size="small" disabled style="flex: 1; min-width: 140px" placeholder="由六维数值自动计算" />
+                  <NInput v-else-if="v.key === 'char_name' && chosenCardId" :value="varValues[v.key]" size="small" disabled style="flex: 1; min-width: 120px" placeholder="跟随所选卡名" />
                   <NInput v-else v-model:value="varValues[v.key]!" size="small" style="flex: 1; min-width: 120px" :placeholder="v.initial" />
                   <NButton size="tiny" quaternary type="error" @click="removeVar(v.key)">
                     <template #icon><NIcon><TrashOutline /></NIcon></template>

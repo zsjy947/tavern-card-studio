@@ -13,9 +13,9 @@ src-tauri/target/
 src-tauri/gen/schemas/
 
 # 本地数据与产物
-data/
-release/
-.screenshots/
+/data/
+/release/
+/.screenshots/
 
 # 系统与本地覆盖
 .DS_Store

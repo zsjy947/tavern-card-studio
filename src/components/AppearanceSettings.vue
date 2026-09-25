@@ -113,8 +113,12 @@ async function doImportLocal() {
 }
 
 async function doRemove(fontId: string, name: string) {
-  await appearance.uninstallFont(fontId);
-  message.info(`已卸载「${name}」，已回退默认字体`);
+  try {
+    await appearance.uninstallFont(fontId);
+    message.info(`已卸载「${name}」，已回退默认字体`);
+  } catch (e) {
+    message.error(`卸载失败：${(e as Error).message}`);
+  }
 }
 </script>
 

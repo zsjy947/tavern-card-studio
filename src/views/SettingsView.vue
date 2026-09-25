@@ -8,18 +8,26 @@ import { DownloadOutline, CloudUploadOutline } from '@vicons/ionicons5';
 import { exportBackup, importBackup, downloadBlob, timestampName } from '@/services/backupService';
 import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
 import { pickFiles, formatBytes } from '@/utils/file';
-import { getStore } from '@/db';
+import { getStore, consumeDegradedNotice } from '@/db';
 import { useWorkspace } from '@/stores/workspace';
+import { useAppearance } from '@/stores/appearance';
 import AppearanceSettings from '@/components/AppearanceSettings.vue';
 
 const message = useMessage();
 const ws = useWorkspace();
+const appearance = useAppearance();
 const busy = ref('');
 const dbInfo = ref<{ driver: string; tables: Record<string, number> }>({ driver: '', tables: {} });
 const userName = ref('User');
 const dualWrite = ref(true);
 
 onMounted(async () => {
+  // 桌面 SQLite 启动期降级过的话，这里一次性提示
+  if (consumeDegradedNotice()) {
+    message.error('桌面数据库初始化失败，本次已降级到浏览器存储（数据不完整），重启应用可重试');
+  }
+  // 主动刷新已装字体列表：即使启动期读取失败，进设置页也会自愈
+  appearance.refreshInstalled().catch((e) => console.error('字体列表刷新失败：', e));
   const store = await getStore();
   const dump = await store.dump();
   dbInfo.value = {

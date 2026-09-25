@@ -88,6 +88,8 @@ const BLANK: CardTemplatePayload = {
   defaultTags: [],
   fields: [
     { key: 'name', label: '角色名', hint: '必填', required: true },
+    { key: 'description', label: '角色描述', hint: '自由书写：人设、世界、规则都可以；也可在步骤 3 添加自定义字段', required: true },
+    { key: 'first_mes', label: '开场白', hint: '用 {{user}} 指代玩家', required: true },
     ...COMMON_TAIL,
   ],
 };

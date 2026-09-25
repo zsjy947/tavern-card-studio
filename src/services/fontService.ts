@@ -39,8 +39,30 @@ export function fontSupported(): boolean {
 }
 
 export async function listInstalled(): Promise<InstalledFontMeta[]> {
-  const rows = await (await getStore()).list<InstalledFontMeta>(FONT_TABLE);
-  return rows.sort((a, b) => a.installedAt.localeCompare(b.installedAt));
+  const read = async () => {
+    const rows = await (await getStore()).list<InstalledFontMeta>(FONT_TABLE);
+    return rows.sort((a, b) => a.installedAt.localeCompare(b.installedAt));
+  };
+  try {
+    return await read();
+  } catch (e) {
+    // 启动期与其他初始化并发打同一个库时可能瞬时失败，重试一次自愈
+    console.warn('字体列表读取失败，重试一次：', e);
+    return read();
+  }
+}
+
+/** 桌面端校验字体落盘文件是否可读；浏览器模式恒真（blob 在库内） */
+export async function verifyFontFile(meta: InstalledFontMeta): Promise<boolean> {
+  if (!isTauri()) return true;
+  if (!meta.fileName) return false;
+  try {
+    const dir = await fontDir();
+    await tauriInvoke()('font_read', { dir, name: meta.fileName });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isFontReady(id: string): boolean {

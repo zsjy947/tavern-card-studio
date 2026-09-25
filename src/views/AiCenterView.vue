@@ -202,7 +202,14 @@ async function testImage() {
           </NRadioGroup>
         </NFormItem>
         <NFormItem label="Base URL">
-          <NInput v-model:value="editing.baseUrl" placeholder="https://api.openai.com/v1" />
+          <NInput v-model:value="editing.baseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" />
+        </NFormItem>
+        <NFormItem label=" ">
+          <NText depth="3" style="font-size: 12px; line-height: 1.8">
+            主流厂商路径（填到版本号一级即可，/chat/completions 自动追加）：<br />
+            GLM：<NText code>https://open.bigmodel.cn/api/paas/v4</NText>　GLM Coding：<NText code>https://open.bigmodel.cn/api/coding/paas/v4</NText><br />
+            DeepSeek：<NText code>https://api.deepseek.com</NText>　OpenAI：<NText code>https://api.openai.com/v1</NText>
+          </NText>
         </NFormItem>
         <NFormItem label="API Key">
           <NInput v-model:value="editing.apiKey" type="password" show-password-on="click" placeholder="仅存本地" />

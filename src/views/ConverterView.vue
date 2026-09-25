@@ -19,6 +19,21 @@ const dualWrite = ref(true);
 const report = ref<{ name: string; ok: boolean; detail: string }[]>([]);
 const busy = ref(false);
 const lastJsonPreview = ref('');
+// 底图显式选择：不再在选完 JSON 后隐藏式串行弹第二个对话框
+const basePngName = ref('');
+const basePngBytes = ref<Uint8Array | null>(null);
+
+async function chooseBasePng() {
+  const files = await pickPngFiles();
+  if (!files.length) return;
+  basePngBytes.value = new Uint8Array(await files[0]!.arrayBuffer());
+  basePngName.value = files[0]!.name;
+}
+
+function clearBasePng() {
+  basePngBytes.value = null;
+  basePngName.value = '';
+}
 
 async function convertPngToJson() {
   const files = await pickPngFiles(true);
@@ -27,76 +42,78 @@ async function convertPngToJson() {
   report.value = [];
   const zip = new JSZip();
   let okCount = 0;
-  for (const f of files) {
-    try {
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const { raw } = extractCardFromPng(bytes);
-      const card = parseLooseCard(raw);
-      const json = JSON.stringify(card, null, 2);
-      lastJsonPreview.value = json.slice(0, 2000);
-      const out = `${sanitizeFilename(f.name.replace(/\.png$/i, ''))}.json`;
-      if (files.length === 1) {
-        downloadText(json, out);
-      } else {
-        zip.file(out, json);
+  try {
+    for (const f of files) {
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const { raw } = extractCardFromPng(bytes);
+        const card = parseLooseCard(raw);
+        const json = JSON.stringify(card, null, 2);
+        lastJsonPreview.value = json.slice(0, 2000);
+        const out = `${sanitizeFilename(f.name.replace(/\.png$/i, ''))}.json`;
+        if (files.length === 1) {
+          downloadText(json, out);
+        } else {
+          zip.file(out, json);
+        }
+        const issues = runStaticChecks(card);
+        const errors = issues.filter((i) => i.severity === 'error').length;
+        // 明细直接进报告，避免只报「N 个错误」却看不到错在哪
+        const details = issues.slice(0, 4).map((i) => `${i.severity === 'error' ? '✗' : i.severity === 'warn' ? '⚠' : 'ℹ'} ${i.field}：${i.message}`);
+        report.value.push({
+          name: f.name,
+          ok: errors === 0,
+          detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}${issues.length ? `（${issues.length} 项）` : ''}${details.length ? '\n' + details.join('\n') : ''}`,
+        });
+        okCount++;
+      } catch (e) {
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
       }
-      const issues = runStaticChecks(card);
-      const errors = issues.filter((i) => i.severity === 'error').length;
-      // 明细直接进报告，避免只报「N 个错误」却看不到错在哪
-      const details = issues.slice(0, 4).map((i) => `${i.severity === 'error' ? '✗' : i.severity === 'warn' ? '⚠' : 'ℹ'} ${i.field}：${i.message}`);
-      report.value.push({
-        name: f.name,
-        ok: errors === 0,
-        detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}${issues.length ? `（${issues.length} 项）` : ''}${details.length ? '\n' + details.join('\n') : ''}`,
-      });
-      okCount++;
-    } catch (e) {
-      report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
     }
+    if (files.length > 1 && okCount) {
+      downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
+    }
+    message.success(`转换完成 ${okCount}/${files.length}`);
+  } finally {
+    busy.value = false;
   }
-  if (files.length > 1 && okCount) {
-    downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
-  }
-  busy.value = false;
-  message.success(`转换完成 ${okCount}/${files.length}`);
 }
 
-/** JSON→PNG：支持先选卡后选底图，或无底图占位 */
+/** JSON→PNG：底图由面板显式选择（或占位图），不再隐藏式串行弹窗 */
 async function convertJsonToPng() {
   const files = await pickJsonFiles(true);
   if (!files.length) return;
   busy.value = true;
   report.value = [];
-  let basePng: Uint8Array | null = null;
-  const baseFiles = await pickPngFiles();
-  if (baseFiles.length) {
-    basePng = new Uint8Array(await baseFiles[0]!.arrayBuffer());
-  }
+  const basePng = basePngBytes.value;
   const zip = new JSZip();
   let okCount = 0;
-  for (const f of files) {
-    try {
-      const text = await f.text();
-      const card = parseLooseCard(JSON.parse(text));
-      const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
-      const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
-      if (files.length === 1 && !baseFiles.length) {
-        // 单文件也走 zip 太绕，直接下载 png
-        downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
-      } else {
-        zip.file(out, png);
+  try {
+    for (const f of files) {
+      try {
+        const text = await f.text();
+        const card = parseLooseCard(JSON.parse(text));
+        const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
+        const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
+        if (files.length === 1 && !basePng) {
+          // 单文件也走 zip 太绕，直接下载 png
+          downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
+        } else {
+          zip.file(out, png);
+        }
+        report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? `（底图：${basePngName.value}）` : '（占位底图）'}` });
+        okCount++;
+      } catch (e) {
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
       }
-      report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? '（指定底图）' : '（占位底图）'}` });
-      okCount++;
-    } catch (e) {
-      report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
     }
+    if (files.length > 1 && okCount) {
+      downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
+    }
+    message.success(`转换完成 ${okCount}/${files.length}`);
+  } finally {
+    busy.value = false;
   }
-  if (files.length > 1 && okCount) {
-    downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
-  }
-  busy.value = false;
-  message.success(`转换完成 ${okCount}/${files.length}`);
 }
 
 function run() {
@@ -123,9 +140,18 @@ function run() {
             读取 PNG 卡内 tEXt 元数据（优先 ccv3，回退 chara），归一化后导出 JSON。多文件自动打包 zip，附完整性校验报告。
           </template>
           <template v-else>
-            把卡 JSON 嵌入 PNG 底图 tEXt 块。先选 JSON（可多选），再可选一张底图；不选底图时使用占位图。
+            把卡 JSON 嵌入 PNG 底图 tEXt 块。先选 JSON（可多选）；底图在下方显式选择，不选时使用占位图。
           </template>
         </NText>
+
+        <NSpace v-if="mode === 'json2png'" :size="10" align="center" style="margin-bottom: 12px">
+          <NText depth="3" style="font-size: 13px">底图：</NText>
+          <NButton v-if="!basePngBytes" size="small" @click="chooseBasePng">选择 PNG…（不选则用占位图）</NButton>
+          <template v-else>
+            <NTag size="small" :bordered="false" type="info" closable @close="clearBasePng">{{ basePngName }}</NTag>
+            <NButton size="small" quaternary @click="chooseBasePng">更换</NButton>
+          </template>
+        </NSpace>
 
         <NSpace :size="10" align="center">
           <NButton type="primary" :loading="busy" @click="run">

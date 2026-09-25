@@ -11,7 +11,8 @@ import { computed, ref } from 'vue';
 import { darkTheme, lightTheme, type GlobalThemeOverrides } from 'naive-ui';
 import { cssVarsOf, DEFAULT_THEME_ID, getTheme, THEMES, type ThemeDefinition } from '@/core/theme';
 import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
-import { ensureFontLoaded, listInstalled, removeFont, type InstalledFontMeta } from '@/services/fontService';
+import { isTauri } from '@/db/tauri';
+import { ensureFontLoaded, listInstalled, verifyFontFile, removeFont, type InstalledFontMeta } from '@/services/fontService';
 
 const LS_THEME = 'tcs_theme';
 const LS_FONT = 'tcs_font';
@@ -51,6 +52,8 @@ export const useAppearance = defineStore('appearance', () => {
   const installedFonts = ref<InstalledFontMeta[]>([]);
   /** 字体注册中（大文件首次启用需要解码数秒） */
   const fontPreparing = ref(false);
+  /** 已安装但落盘文件缺失/不可读的字体（桌面端），UI 标记并提供重装 */
+  const missingFontIds = ref<string[]>([]);
 
   const theme = computed<ThemeDefinition>(() => getTheme(themeId.value) ?? THEMES[0]!);
   const naiveTheme = computed(() => (theme.value.mode === 'dark' ? darkTheme : lightTheme));
@@ -88,42 +91,83 @@ export const useAppearance = defineStore('appearance', () => {
     applyToDom();
   }
 
+  /**
+   * 异步校准：拆步独立 try/catch——主题偏好、字体列表、字体恢复互不拖垮；
+   * 任一步失败不吞掉其余步骤（此前单 try 下一次瞬时失败就让已装列表整场为空）。
+   */
   async function init(): Promise<void> {
     initSync();
+
+    // ① 主题与字体偏好（设置库，随备份迁移）
+    let prefTheme = '';
+    let prefFont = '';
     try {
       const [t, f] = await Promise.all([
         getSetting<string>(SETTING_KEYS.uiTheme, ''),
         getSetting<string>(SETTING_KEYS.uiFont, ''),
       ]);
-      installedFonts.value = await listInstalled();
-      if (t && getTheme(t)) {
-        if (t !== themeId.value) localStorage.setItem(LS_THEME, t);
-        themeId.value = t;
-      }
-      // 字体偏好必须仍处于已安装状态，否则回退默认
-      if (f && installedFonts.value.some((x) => x.id === f)) {
-        fontId.value = f;
-        localStorage.setItem(LS_FONT, f);
-        void prepareFont(f);
-      } else if (fontId.value) {
-        fontId.value = '';
-        localStorage.removeItem(LS_FONT);
-      }
-      // 首次运行把当前值写回设置库（随备份迁移）
-      void setSetting(SETTING_KEYS.uiTheme, themeId.value);
-      void setSetting(SETTING_KEYS.uiFont, fontId.value);
+      prefTheme = t;
+      prefFont = f;
     } catch (e) {
-      console.error('外观偏好加载失败：', e);
-    } finally {
-      ready.value = true;
-      applyToDom();
+      console.error('外观偏好读取失败：', e);
     }
+
+    // ② 已装字体列表（fontService 内部自带一次重试）
+    try {
+      installedFonts.value = await listInstalled();
+    } catch (e) {
+      console.error('字体列表加载失败：', e);
+    }
+
+    // ③ 主题偏好应用
+    if (prefTheme && getTheme(prefTheme)) {
+      themeId.value = prefTheme;
+      localStorage.setItem(LS_THEME, prefTheme);
+    }
+
+    // ④ 字体偏好应用：偏好字体必须仍已安装且文件可读，否则回退默认
+    const meta = installedFonts.value.find((x) => x.id === prefFont);
+    if (prefFont && meta) {
+      fontId.value = prefFont;
+      localStorage.setItem(LS_FONT, prefFont);
+      try {
+        if (isTauri() && !(await verifyFontFile(meta))) {
+          markMissing(prefFont, true);
+          clearFontPreference();
+        } else {
+          void prepareFont(prefFont);
+        }
+      } catch (e) {
+        console.error('字体文件校验失败：', e);
+      }
+    } else if (fontId.value) {
+      clearFontPreference();
+    }
+
+    // 首次运行把当前值写回设置库（随备份迁移）
+    void setSetting(SETTING_KEYS.uiTheme, themeId.value).catch(() => undefined);
+    void setSetting(SETTING_KEYS.uiFont, fontId.value).catch(() => undefined);
+    ready.value = true;
+    applyToDom();
+  }
+
+  function markMissing(id: string, missing: boolean): void {
+    missingFontIds.value = missing
+      ? [...new Set([...missingFontIds.value, id])]
+      : missingFontIds.value.filter((x) => x !== id);
+  }
+
+  function clearFontPreference(): void {
+    fontId.value = '';
+    localStorage.removeItem(LS_FONT);
   }
 
   async function prepareFont(id: string): Promise<boolean> {
     fontPreparing.value = true;
     try {
-      return await ensureFontLoaded(id);
+      const ok = await ensureFontLoaded(id);
+      markMissing(id, !ok);
+      return ok;
     } finally {
       fontPreparing.value = false;
     }
@@ -153,11 +197,13 @@ export const useAppearance = defineStore('appearance', () => {
   /** 安装/卸载字体后刷新列表；当前字体被卸载时回退默认 */
   async function refreshInstalled(): Promise<void> {
     installedFonts.value = await listInstalled();
-    if (fontId.value && !installedFonts.value.some((x) => x.id === fontId.value)) {
+    const ids = new Set(installedFonts.value.map((x) => x.id));
+    missingFontIds.value = missingFontIds.value.filter((x) => ids.has(x));
+    if (fontId.value && !ids.has(fontId.value)) {
       fontId.value = '';
       localStorage.removeItem(LS_FONT);
       applyToDom();
-      void setSetting(SETTING_KEYS.uiFont, '');
+      void setSetting(SETTING_KEYS.uiFont, '').catch(() => undefined);
     }
   }
 
@@ -167,7 +213,7 @@ export const useAppearance = defineStore('appearance', () => {
   }
 
   return {
-    themeId, fontId, ready, installedFonts, fontPreparing,
+    themeId, fontId, ready, installedFonts, fontPreparing, missingFontIds,
     theme, naiveTheme, fontMeta, fontFamily, themeOverrides, statusColors,
     init, initSync, setTheme, setFont, refreshInstalled, uninstallFont,
   };

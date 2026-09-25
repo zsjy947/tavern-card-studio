@@ -1,10 +1,10 @@
 <script setup lang="ts">
-/** 外观设置：主题选择（含文学氛围主题）+ 界面字体管理（在线安装 / 本地导入） */
+/** 外观设置：主题选择（含文学氛围主题）+ 界面字体（单下拉：已装 + 目录点选即装） */
 import { computed, reactive, ref } from 'vue';
 import {
-  NCard, NSpace, NTag, NText, NButton, NIcon, NSelect, NProgress, NPopconfirm, useMessage,
+  NCard, NSpace, NText, NButton, NIcon, NSelect, NProgress, NPopconfirm, NSpin, useMessage,
 } from 'naive-ui';
-import { CloudDownloadOutline, AddOutline, TrashOutline, CheckmarkCircle } from '@vicons/ionicons5';
+import { AddOutline, TrashOutline, CheckmarkCircle } from '@vicons/ionicons5';
 import { THEMES } from '@/core/theme';
 import { FONT_CATALOG, type FontCatalogEntry } from '@/core/font';
 import { useAppearance } from '@/stores/appearance';
@@ -27,13 +27,44 @@ const downloads = reactive<Record<string, { loaded: number; total: number }>>({}
 
 const installedIds = computed(() => new Set(appearance.installedFonts.map((f) => f.id)));
 
-const fontOptions = computed(() => [
-  { label: '默认字体（跟随系统）', value: '' },
-  ...appearance.installedFonts.map((f) => ({
-    label: `${f.name}（${f.style}${f.size ? '，' + formatBytes(f.size) : ''}）`,
-    value: f.id,
-  })),
-]);
+/** 单下拉：默认字体 + 已安装（组1）+ 目录（组2，点选即下载安装） */
+const fontOptions = computed(() => {
+  const groups: ReturnType<typeof buildGroup>[] = [
+    buildGroup('可用字体', [
+      { label: '默认字体（跟随系统）', value: '' },
+      ...appearance.installedFonts.map((f) => ({
+        label: `${f.name}（${f.style}${appearance.missingFontIds.includes(f.id) ? '，文件缺失' : ''}）`,
+        value: f.id,
+      })),
+    ]),
+  ];
+  const pending = FONT_CATALOG.filter((e) => !installedIds.value.has(e.id));
+  if (pending.length) {
+    groups.push(buildGroup('字体目录（点选即下载安装）', pending.map((e) => ({
+      label: `${e.name} · ${e.style} · ${e.sizeLabel}`,
+      value: `catalog:${e.id}`,
+    }))));
+  }
+  return groups;
+});
+
+function buildGroup(label: string, children: { label: string; value: string }[]) {
+  return { type: 'group' as const, label, key: label, children };
+}
+
+const downloadEntry = computed(() => {
+  const id = Object.keys(downloads)[0];
+  return id ? { id, ...downloads[id]! } : null;
+});
+
+async function onFontSelect(value: string) {
+  if (value.startsWith('catalog:')) {
+    const entry = FONT_CATALOG.find((e) => e.id === value.slice('catalog:'.length));
+    if (entry) await doDownload(entry);
+    return;
+  }
+  await onFontChange(value);
+}
 
 async function onFontChange(id: string) {
   if (id === appearance.fontId) return;
@@ -56,9 +87,8 @@ async function doDownload(entry: FontCatalogEntry) {
       downloads[entry.id] = { loaded, total };
     });
     await appearance.refreshInstalled();
-    message.success(`「${meta.name}」安装完成（${formatBytes(meta.size)}），可在上方选择应用`);
-    // 若当前是默认字体，直接应用新装字体
-    if (!appearance.fontId) await onFontChange(meta.id);
+    message.success(`「${meta.name}」安装完成（${formatBytes(meta.size)}），已自动应用`);
+    if (appearance.fontId !== meta.id) await onFontChange(meta.id);
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -84,12 +114,13 @@ async function doImportLocal() {
 
 async function doRemove(fontId: string, name: string) {
   await appearance.uninstallFont(fontId);
-  message.info(`已卸载「${name}」`);
+  message.info(`已卸载「${name}」，已回退默认字体`);
 }
 </script>
 
 <template>
-  <NSpace vertical :size="14">
+  <NSpin v-if="!appearance.ready" size="small" style="display: block; margin: 32px auto" />
+  <NSpace v-else vertical :size="14">
     <NCard size="small" title="主题模式">
       <template #header-extra>
         <NText depth="3" style="font-size: 12px">切换即时生效，随备份迁移</NText>
@@ -128,69 +159,50 @@ async function doRemove(fontId: string, name: string) {
           导入本地字体
         </NButton>
       </template>
-      <NSpace vertical :size="12">
-        <NSelect
-          :value="appearance.fontId"
-          :options="fontOptions"
-          :loading="applying || appearance.fontPreparing"
-          filterable
-          placeholder="选择界面字体"
-          style="max-width: 420px"
-          @update:value="onFontChange"
-        />
+      <NSpace vertical :size="10">
+        <NSpace :size="10" align="center">
+          <NSelect
+            :value="appearance.fontId"
+            :options="fontOptions"
+            :loading="applying || appearance.fontPreparing"
+            filterable
+            placeholder="选择界面字体"
+            style="max-width: 420px"
+            @update:value="onFontSelect"
+          />
+          <NPopconfirm
+            v-if="appearance.fontId"
+            @positive-click="doRemove(appearance.fontId, appearance.fontMeta?.name ?? '当前字体')"
+          >
+            <template #trigger>
+              <NButton size="tiny" quaternary type="error">
+                <template #icon><NIcon><TrashOutline /></NIcon></template>
+                卸载当前
+              </NButton>
+            </template>
+            卸载后回退默认字体，需要时可重新下载/导入，确认？
+          </NPopconfirm>
+        </NSpace>
 
-        <div class="font-catalog">
-          <div v-for="entry in FONT_CATALOG" :key="entry.id" class="font-row">
-            <div class="font-row-main">
-              <div class="font-row-head">
-                <span class="font-name">{{ entry.name }}</span>
-                <NTag size="tiny" :bordered="false" round>{{ entry.style }}</NTag>
-                <NTag v-if="installedIds.has(entry.id)" size="tiny" type="success" :bordered="false" round>已安装</NTag>
-              </div>
-              <NText depth="3" class="font-desc">{{ entry.description }}</NText>
-              <NText depth="3" class="font-meta">{{ entry.sizeLabel }} · {{ entry.license }} · 开源免费</NText>
-            </div>
-            <div class="font-row-ops">
-              <template v-if="downloads[entry.id]">
-                <div class="font-dl">
-                  <NProgress
-                    v-if="downloads[entry.id]!.total"
-                    type="line" :height="6" :show-indicator="false"
-                    :percentage="Math.round((downloads[entry.id]!.loaded / downloads[entry.id]!.total) * 100)"
-                  />
-                  <NText depth="3" style="font-size: 11px">
-                    下载中 {{ downloads[entry.id]!.total
-                      ? formatBytes(downloads[entry.id]!.loaded) + ' / ' + formatBytes(downloads[entry.id]!.total)
-                      : '…（大文件约需 1-2 分钟）' }}
-                  </NText>
-                </div>
-              </template>
-              <template v-else>
-                <NButton
-                  v-if="!installedIds.has(entry.id)"
-                  size="tiny" type="primary" secondary
-                  @click="doDownload(entry)"
-                >
-                  <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>
-                  下载安装
-                </NButton>
-                <NPopconfirm v-else @positive-click="doRemove(entry.id, entry.name)">
-                  <template #trigger>
-                    <NButton size="tiny" quaternary type="error">
-                      <template #icon><NIcon><TrashOutline /></NIcon></template>
-                      卸载
-                    </NButton>
-                  </template>
-                  卸载后可在需要时重新下载，确认？
-                </NPopconfirm>
-              </template>
-            </div>
-          </div>
+        <div v-if="downloadEntry" class="font-dl">
+          <NProgress
+            v-if="downloadEntry.total"
+            type="line" :height="4" :show-indicator="false"
+            :percentage="Math.round((downloadEntry.loaded / downloadEntry.total) * 100)"
+          />
+          <NText depth="3" style="font-size: 11px">
+            正在下载安装 {{ downloadEntry.total
+              ? formatBytes(downloadEntry.loaded) + ' / ' + formatBytes(downloadEntry.total)
+              : '…（大文件约需 1-2 分钟）' }}
+          </NText>
         </div>
 
+        <NText v-if="appearance.fontId && appearance.missingFontIds.includes(appearance.fontId)" type="warning" style="font-size: 12px">
+          当前字体的文件缺失或不可读（可能被手动删除），界面已回退默认渲染；可在字体目录重新安装同款，或「导入本地字体」替代。
+        </NText>
+
         <NText depth="3" style="font-size: 12px; line-height: 1.8">
-          字体来自官方开源发布渠道（GitHub Releases），失败会自动尝试镜像；桌面端安装后落盘到数据目录 data/fonts/，浏览器模式存于浏览器数据库，均不随备份导出，可随时重新下载。
-          桌面模式经本机直连下载；浏览器模式受跨域限制，Release 渠道字体不可下载，可用「导入本地字体」替代。
+          字体来自官方开源发布渠道，桌面端安装后落盘到数据目录 data/fonts/，浏览器模式存于浏览器数据库，均不随备份导出，可随时重新下载。
           含全部常用汉字，首次启用需解码数秒。预览：简体中文的字体渲染测试 The quick brown fox 1234567890
         </NText>
       </NSpace>
@@ -234,19 +246,5 @@ async function doRemove(fontId: string, name: string) {
 }
 .swatch-check { color: var(--tcs-accent, #8b5cf6); }
 .swatch-desc { font-size: 11px; color: var(--tcs-text-3, #8b8b96); }
-
-.font-catalog { display: flex; flex-direction: column; }
-.font-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 2px;
-  border-top: 1px dashed var(--tcs-border, rgba(255, 255, 255, 0.07));
-}
-.font-row:first-child { border-top: none; }
-.font-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.font-row-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.font-name { font-weight: 700; font-size: 13px; }
-.font-desc { font-size: 12px; }
-.font-meta { font-size: 11px; }
-.font-row-ops { flex: none; width: 200px; display: flex; justify-content: flex-end; }
-.font-dl { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.font-dl { display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
 </style>

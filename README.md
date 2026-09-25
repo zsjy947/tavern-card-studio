@@ -11,7 +11,7 @@
 ```bash
 npm install
 npm run dev        # 浏览器模式（IndexedDB 兜底存储）
-npm test           # vitest：111 个用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/epub/服务层集成/社区卡宽容导入）
+npm test           # vitest：123 个用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/epub/服务层集成/主题/字体安装）
 npm run typecheck  # vue-tsc
 npm run build      # 生产构建
 ```
@@ -24,7 +24,7 @@ npx tauri icon src-tauri/icons/icon.png   # 生成各尺寸图标
 npx tauri build                  # 产出 NSIS 安装器（x64）
 ```
 
-Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插件、便携模式数据目录逻辑（`src-tauri/src/lib.rs`）。前端通过 `window.__TAURI__.core.invoke` 调用 SQL 插件（`src/db/tauri.ts`），web 构建保持零 Tauri 依赖。
+Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插件、便携模式数据目录逻辑（`src-tauri/src/lib.rs`）；自定义命令 `http_get_bytes` 供字体等大文件绕过 webview CORS 直连官方源。前端通过 `window.__TAURI__.core.invoke` 调用 SQL 插件（`src/db/tauri.ts`），web 构建保持零 Tauri 依赖。
 
 ## 功能地图
 
@@ -42,6 +42,7 @@ Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插
 | 版本管理 | 保存自动快照（上限 50）、版本列表、两版 diff、回滚 |
 | 统计看板 | 卡数/模板/体积/token 分布/AI 调用趋势与功能排行 |
 | 设置与备份 | 全量备份导出/导入 zip（合并或清空恢复）、运行环境说明、PNG 双写等偏好 |
+| 外观 | 5 套主题一键切换（暗夜·幽紫 / 晨白浅色 / 书卷·纸墨 / 竹林·青韵 / 墨海·黛蓝，含纸纹竹影纹理）、界面字体在线安装（霞鹜文楷/思源宋体/朱雀仿宋/汇文明朝体/悠哉字体，开源 SIL OFL）与本地导入 |
 | 使用指南 | 面向新手：每个字段/选项的作用 + 它会以什么方式注入 SillyTavern（字段速查/世界书/正则/脚本/常见问题） |
 
 ## 工程结构
@@ -81,5 +82,6 @@ Tauri 壳已配置：`withGlobalTauri` + `plugin:sql`（SQLite）+ dialog/fs 插
 ## 已知事项
 
 - 内嵌受限浏览器中 naive-ui 虚拟列表（NSelect 下拉）可能不渲染选项；真实 Chrome / Tauri WebView2 正常。
+- 字体在线下载：桌面模式走 Rust 直连（无跨域限制）；浏览器模式受 CORS 限制，GitHub Releases 渠道字体不可下载（raw 仓库文件类可用），可用「导入本地字体」替代。
 - tiktoken 词表约 2.6MB（gzip），桌面应用可接受；后续可换按需编码器（见优化文档）。
 - Tauri 打包需本机安装 Rust 工具链；无 Rust 时以浏览器模式运行全部功能（存储落到 IndexedDB）。

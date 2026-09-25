@@ -245,8 +245,8 @@ async function rollback(v: CardVersionRow) {
 .editor-root { max-width: 1080px; margin: 0 auto; }
 .editor-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .editor-title { font-size: 16px; font-weight: 800; }
-.version-diff { max-height: 260px; overflow: auto; border-top: 1px dashed rgba(255,255,255,.1); padding-top: 8px; }
+.version-diff { max-height: 260px; overflow: auto; border-top: 1px dashed var(--tcs-border, rgba(255,255,255,.1)); padding-top: 8px; }
 .version-diff-row { font-size: 12px; margin-bottom: 6px; line-height: 1.5; }
-.diff-before { color: #f87171; }
-.diff-after { color: #4ade80; }
+.diff-before { color: var(--tcs-bad, #f87171); }
+.diff-after { color: var(--tcs-good, #4ade80); }
 </style>

@@ -107,7 +107,7 @@ const ROLE_OPTIONS = [
         <CodeEditor v-model="rawJson" language="javascript" height="480px" />
         <NSpace align="center">
           <button class="raw-apply" @click="applyRaw">应用 JSON</button>
-          <span v-if="rawError" style="color: #f87171; font-size: 12px">{{ rawError }}</span>
+          <span v-if="rawError" style="color: var(--tcs-bad, #f87171); font-size: 12px">{{ rawError }}</span>
         </NSpace>
       </NSpace>
     </NTab>
@@ -118,8 +118,8 @@ const ROLE_OPTIONS = [
 .field-block { width: 100%; }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
 .raw-apply {
-  background: #8b5cf6; color: #fff; border: none; border-radius: 6px;
+  background: var(--tcs-accent, #8b5cf6); color: #fff; border: none; border-radius: 6px;
   padding: 5px 14px; cursor: pointer; font-size: 13px;
 }
-.raw-apply:hover { background: #a78bfa; }
+.raw-apply:hover { background: var(--tcs-accent-hover, #a78bfa); }
 </style>

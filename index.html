@@ -26,5 +26,17 @@
       <div class="boot-splash"><div class="logo">TavernCard Studio</div><div class="boot-bar"><i></i></div></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // 首屏底色跟随已保存主题（与 src/core/theme/themes.ts 的 palette.bg 保持一致）
+      // eslint-disable-next-line no-undef
+      (function () {
+        var bg = { dark: '#101014', light: '#f2f3f7', sepia: '#ece1cb', bamboo: '#e9f0e5', ink: '#14181f' };
+        try {
+          var t = localStorage.getItem('tcs_theme');
+          var el = document.querySelector('.boot-splash');
+          if (el && t && bg[t]) el.style.background = bg[t];
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
   </body>
 </html>

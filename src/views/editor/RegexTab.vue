@@ -203,5 +203,5 @@ function applyTemplate(row: TemplateRow) {
 .rx-tester { border: 1px dashed rgba(139,92,246,.35); border-radius: 10px; padding: 12px; }
 .rx-tester-title { display: flex; align-items: center; gap: 6px; font-weight: 700; margin-bottom: 8px; }
 .rx-tester-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.rx-tester-out { white-space: pre-wrap; background: rgba(0,0,0,.3); border-radius: 8px; padding: 8px 10px; min-height: 180px; font-size: 13px; line-height: 1.6; }
+.rx-tester-out { white-space: pre-wrap; background: var(--tcs-editor-bg, rgba(0,0,0,.3)); border-radius: 8px; padding: 8px 10px; min-height: 180px; font-size: 13px; line-height: 1.6; }
 </style>

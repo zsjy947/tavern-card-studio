@@ -307,20 +307,20 @@ async function restore(c: CardRow) {
 <style scoped>
 .lib-layout { display: flex; gap: 16px; align-items: flex-start; }
 .lib-side {
-  flex: none; width: 190px; border: 1px solid rgba(255,255,255,.07); border-radius: 12px;
-  padding: 10px; background: rgba(255,255,255,.02); position: sticky; top: 0;
+  flex: none; width: 190px; border: 1px solid var(--tcs-border, rgba(255,255,255,.07)); border-radius: 12px;
+  padding: 10px; background: var(--tcs-fill-soft, rgba(255,255,255,.02)); position: sticky; top: 0;
 }
 .lib-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .lib-main { flex: 1; min-width: 0; }
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .lib-card {
-  background: rgba(255, 255, 255, 0.028);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--tcs-fill-soft, rgba(255, 255, 255, 0.028));
+  border: 1px solid var(--tcs-border, rgba(255, 255, 255, 0.07));
   border-radius: 14px; padding: 12px 14px;
   transition: border-color .15s, transform .15s, box-shadow .15s;
 }
-.lib-card:hover { border-color: rgba(139, 92, 246, .55); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
-.lib-card-selected { border-color: #8b5cf6; background: rgba(139, 92, 246, 0.07); }
+.lib-card:hover { border-color: var(--tcs-accent-border, rgba(139, 92, 246, .55)); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.lib-card-selected { border-color: var(--tcs-accent, #8b5cf6); background: var(--tcs-accent-soft, rgba(139, 92, 246, 0.07)); }
 .lib-card-main { display: flex; gap: 12px; cursor: pointer; }
 .lib-card-info { flex: 1; min-width: 0; }
 .lib-card-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -328,5 +328,5 @@ async function restore(c: CardRow) {
 .lib-card-tk { font-variant-numeric: tabular-nums; }
 .lib-card-date { margin-left: auto; }
 .lib-card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-.lib-card-ops { display: flex; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,.06); align-items: center; }
+.lib-card-ops { display: flex; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--tcs-border, rgba(255,255,255,.06)); align-items: center; }
 </style>

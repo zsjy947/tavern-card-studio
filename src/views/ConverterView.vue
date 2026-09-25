@@ -173,7 +173,7 @@ function run() {
 
 <style scoped>
 .converter-card {
-  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+  background: var(--tcs-fill, rgba(255,255,255,.03)); border: 1px solid var(--tcs-border, rgba(255,255,255,.07));
   border-radius: 14px; padding: 18px 20px;
 }
 </style>

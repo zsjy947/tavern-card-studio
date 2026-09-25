@@ -39,12 +39,25 @@ export async function pickPngFiles(multiple = false): Promise<File[]> {
 }
 
 export function bytesToDataUrl(bytes: Uint8Array, mime = 'image/png'): string {
+  return `data:${mime};base64,${bytesToBase64(bytes)}`;
+}
+
+/** 分块 base64 编码（字体等大文件，避免 String.fromCharCode 展开栈溢出） */
+export function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
     bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
-  const b64 = typeof btoa === 'function' ? btoa(bin) : Buffer.from(bytes).toString('base64');
-  return `data:${mime};base64,${b64}`;
+  return typeof btoa === 'function' ? btoa(bin) : Buffer.from(bytes).toString('base64');
+}
+
+/** 分块 base64 解码 */
+export function base64ToBytes(b64: string): Uint8Array {
+  if (typeof atob !== 'function') return new Uint8Array(Buffer.from(b64, 'base64'));
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 export function formatBytes(n: number): string {

@@ -117,13 +117,13 @@ function sideText(card: AnyCard | null | undefined, field: string): string {
 <style scoped>
 .cmp-diffs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .cmp-diff-row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
-.cmp-a { color: #f87171; flex: 1; min-width: 0; }
-.cmp-b { color: #4ade80; flex: 1; min-width: 0; }
+.cmp-a { color: var(--tcs-bad, #f87171); flex: 1; min-width: 0; }
+.cmp-b { color: var(--tcs-good, #4ade80); flex: 1; min-width: 0; }
 .cmp-arrow { opacity: .5; }
 .cmp-side-title { font-weight: 700; margin: 12px 0 6px; }
 .cmp-side-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .cmp-pre {
-  background: rgba(0, 0, 0, 0.3); border-radius: 8px; padding: 10px;
+  background: var(--tcs-editor-bg, rgba(0, 0, 0, 0.3)); border-radius: 8px; padding: 10px;
   font-size: 12px; line-height: 1.6; white-space: pre-wrap; max-height: 320px; overflow: auto; margin: 0;
 }
 </style>

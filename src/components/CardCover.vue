@@ -23,7 +23,7 @@ watch(() => props.src, () => (broken.value = false));
 </template>
 
 <style scoped>
-.card-cover { border-radius: 10px; overflow: hidden; flex: none; background: #1a1a22; }
+.card-cover { border-radius: 10px; overflow: hidden; flex: none; background: var(--tcs-cover-bg, #1a1a22); }
 .card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .card-cover-fallback {
   width: 100%; height: 100%;

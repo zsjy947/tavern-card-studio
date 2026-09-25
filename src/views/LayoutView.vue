@@ -3,15 +3,18 @@ import { h, computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutContent, NLayoutHeader,
-  NMenu, NSpace, NTag, NText, NIcon, NBadge, NButton,
+  NMenu, NSpace, NTag, NText, NIcon, NBadge, NButton, NDropdown,
+  type DropdownOption,
 } from 'naive-ui';
 import {
   AlbumsOutline, SwapHorizontalOutline, CreateOutline, ColorPaletteOutline,
   LayersOutline, CloudOutline, MedicalOutline, BookOutline, StatsChartOutline,
   SettingsOutline, SparklesOutline, TerminalOutline, GitCompareOutline,
-  SchoolOutline,
+  SchoolOutline, CheckmarkOutline, OptionsOutline,
 } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
+import { useAppearance } from '@/stores/appearance';
+import { THEMES } from '@/core/theme';
 import { isTauri } from '@/db/tauri';
 import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
 import CommandPalette from '@/components/CommandPalette.vue';
@@ -19,6 +22,7 @@ import CommandPalette from '@/components/CommandPalette.vue';
 const route = useRoute();
 const router = useRouter();
 const ws = useWorkspace();
+const appearance = useAppearance();
 const collapsed = ref(false);
 const paletteShow = ref(false);
 
@@ -49,6 +53,38 @@ function onMenu(key: string) {
 const runtimeTag = isTauri() ? { text: '桌面模式', type: 'success' as const } : { text: '浏览器模式', type: 'default' as const };
 const hasTextChannel = computed(() => ws.activeChannel('text'));
 
+/* ---------------- 主题快捷切换（头部下拉 + 命令面板） ---------------- */
+
+const themeOptions = computed<DropdownOption[]>(() => [
+  ...THEMES.map((t) => ({
+    key: t.id,
+    label: () => h('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, [
+      h('span', {
+        style: `width:14px;height:14px;border-radius:4px;flex:none;border:1px solid var(--tcs-border);
+          background-color:${t.palette.bg};background-image:${t.texture};background-size:120px;display:inline-block`,
+      }),
+      h('span', null, t.label),
+      appearance.themeId === t.id
+        ? h(NIcon, { size: 14, style: 'color: var(--tcs-accent)' }, { default: () => h(CheckmarkOutline) })
+        : null,
+    ]),
+  })),
+  { type: 'divider', key: 'theme-divider' },
+  {
+    key: 'appearance-settings',
+    label: '外观与字体设置…',
+    icon: () => h(NIcon, null, { default: () => h(OptionsOutline) }),
+  },
+] as DropdownOption[]);
+
+function onThemeSelect(key: string | number) {
+  if (key === 'appearance-settings') {
+    router.push('/settings');
+    return;
+  }
+  void appearance.setTheme(String(key));
+}
+
 /* ---------------- 命令面板（Ctrl+K） ---------------- */
 
 function onGlobalKeydown(e: KeyboardEvent) {
@@ -71,6 +107,15 @@ onMounted(async () => {
     await ws.refreshCards(true);
     router.push(`/editor/${row.id}`);
   } });
+  for (const t of THEMES) {
+    registerCommand({
+      id: `theme:${t.id}`,
+      title: `切换主题 · ${t.label}`,
+      group: '外观',
+      keywords: `主题 theme ${t.label} ${t.mode === 'dark' ? '深色' : '浅色'}`,
+      run: () => { void appearance.setTheme(t.id); },
+    });
+  }
 });
 
 onBeforeUnmount(() => {
@@ -78,11 +123,12 @@ onBeforeUnmount(() => {
   for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
   unregisterCommand('nav:/compare');
   unregisterCommand('palette:new-card');
+  for (const t of THEMES) unregisterCommand(`theme:${t.id}`);
 });
 </script>
 
 <template>
-  <NLayout style="height: 100vh" has-sider>
+  <NLayout class="tcs-app" style="height: 100vh" has-sider>
     <NLayoutSider
       bordered
       collapse-mode="width"
@@ -110,6 +156,12 @@ onBeforeUnmount(() => {
           <span class="header-title">{{ (route.meta.title as string) ?? '' }}</span>
         </NSpace>
         <NSpace align="center" :size="6" style="margin-left: auto">
+          <NDropdown trigger="click" :options="themeOptions" @select="onThemeSelect">
+            <NButton size="tiny" tertiary :title="`当前主题：${appearance.theme.label}`">
+              <template #icon><NIcon><ColorPaletteOutline /></NIcon></template>
+              {{ appearance.theme.label }}
+            </NButton>
+          </NDropdown>
           <NButton size="tiny" tertiary @click="paletteShow = true">
             <template #icon><NIcon><TerminalOutline /></NIcon></template>
             Ctrl K
@@ -138,11 +190,11 @@ onBeforeUnmount(() => {
 }
 .brand-collapsed { justify-content: center; padding: 16px 0 12px; }
 .brand-mark {
-  background: linear-gradient(135deg, #8b5cf6, #d946ef);
+  background: var(--tcs-brand-grad, linear-gradient(135deg, #8b5cf6, #d946ef));
   -webkit-background-clip: text; background-clip: text; color: transparent;
   font-size: 17px;
 }
-.brand-name { color: #e7e2f7; font-size: 15px; }
+.brand-name { color: var(--tcs-text-1, #e7e2f7); font-size: 15px; }
 .sider-foot { display: flex; gap: 6px; padding: 12px 16px; flex-wrap: wrap; }
 .app-header {
   display: flex; align-items: center; padding: 10px 22px; height: 46px;

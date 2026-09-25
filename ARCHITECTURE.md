@@ -98,7 +98,15 @@
 - 编辑器视图持有卡的深拷贝本地态，`markDirty` 跟踪，保存走 saveCard；路由 `:id` 变化时必须重载（组件复用），否则保存会写入错误的卡。
 - 本地撤销栈在撤销/重做前必须 flush 待提交的节流快照，否则最近 500ms 内的编辑丢失。
 - iframe 预览 `sandbox="allow-same-origin"`（不执行脚本优先安全；TavernHelper 运行时变量刷新由模板 JS 在真机环境自理）。
-- CodeMirror 6 轻封装 + 自带 One Dark 仿制主题（免去 theme-one-dark 依赖）。
+- CodeMirror 6 轻封装 + One Dark（深色模式）/ 纸面（浅色模式，颜色引用 `--tcs-*` 变量）双主题，经 Compartment 随全局主题热切换。
+
+## 主题与界面字体
+
+- **主题**（core/theme，纯数据）：每套主题 = 色板（映射为 `--tcs-*` CSS 变量）+ 明暗模式 + 可选 SVG 纹理（inline data URL，≤14% 不透明度）。内置 5 套：暗夜·幽紫（默认）/ 晨白 / 书卷·纸墨 / 竹林·青韵 / 墨海·黛蓝。
+- stores/appearance 统一驱动：naive 基础主题（dark/light）+ GlobalThemeOverrides 色板 + documentElement CSS 变量；偏好持久化 settings 表 + localStorage 双写（首帧同步读 localStorage 防主题闪烁）。
+- **视图层禁止硬编码主题色**，一律使用语义变量（`--tcs-accent` / `--tcs-border` / `--tcs-fill` / `--tcs-good` 等，带旧值兜底）。
+- naive 会注入 `body { font-family: 默认token }`（cssr 全局规则，**不吃 overrides**），界面字体用 `--tcs-font-ui` + 同选择器 `!important` 接管；组件均从 body 继承。
+- **字体**（services/fontService）：内置目录（霞鹜文楷/思源宋体/朱雀仿宋/汇文明朝体/悠哉字体，均 SIL OFL）→ 下载（桌面端走自定义命令 `http_get_bytes`；浏览器 fetch 受 CORS 限制，Releases 最终下载域无跨域头，仅 raw 仓库文件类可用）→ zip 经 JSZip 解包 → FontFace 注册。存储双模式：桌面端文件落盘 `data/fonts/`（自定义命令 `font_dir/font_write/font_read/font_delete`，base64 传参 + 文件名白名单校验），fonts 表只存元信息；浏览器端字节存 `font_blobs`（IndexedDB）。字体不进备份（体积大且可重下）；本地导入（ttf/otf/woff）任意环境可用；桌面端读到缺 fileName 的旧元信息时从 font_blobs 自愈迁移。
 
 ## 测试策略
 

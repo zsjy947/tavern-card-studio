@@ -5,7 +5,7 @@
 
 import type { DataStore } from './store';
 
-interface TauriInvoke {
+export interface TauriInvoke {
   (cmd: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -17,7 +17,8 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-function tauriInvoke(): TauriInvoke {
+/** 全局 invoke（withGlobalTauri）；非 Tauri 环境调用会抛错 */
+export function tauriInvoke(): TauriInvoke {
   const g = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
   if (!g?.core?.invoke) throw new Error('window.__TAURI__ 不可用（需要在 tauri.conf.json 开启 withGlobalTauri）');
   return g.core.invoke;
@@ -40,7 +41,7 @@ export class TauriSqlStore implements DataStore {
         .then((url) => String(url))
         .catch(() => 'sqlite:studio.db');
       await invoke('plugin:sql|load', { db: this.db });
-      for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories']) {
+      for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', 'fonts', 'font_blobs']) {
         await invoke('plugin:sql|execute', {
           db: this.db,
           query: `CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY, json TEXT NOT NULL)`,
@@ -91,7 +92,7 @@ export class TauriSqlStore implements DataStore {
 
   async dump(): Promise<Record<string, unknown[]>> {
     const out: Record<string, unknown[]> = {};
-    for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories']) {
+    for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', 'fonts', 'font_blobs']) {
       out[t] = await this.list(t);
     }
     return out;

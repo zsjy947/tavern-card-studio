@@ -239,13 +239,13 @@ async function finish() {
 <style scoped>
 .wiz-tpl {
   width: 200px; padding: 12px 14px; border-radius: 12px; cursor: pointer;
-  border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03);
+  border: 1px solid var(--tcs-border, rgba(255,255,255,.1)); background: var(--tcs-fill, rgba(255,255,255,.03));
   display: flex; flex-direction: column; gap: 6px; transition: all .15s;
 }
-.wiz-tpl:hover { border-color: rgba(139,92,246,.5); }
-.wiz-tpl-active { border-color: #8b5cf6; background: rgba(139,92,246,.1); }
+.wiz-tpl:hover { border-color: var(--tcs-accent-border, rgba(139,92,246,.5)); }
+.wiz-tpl-active { border-color: var(--tcs-accent, #8b5cf6); background: var(--tcs-accent-soft, rgba(139,92,246,.1)); }
 .wiz-tpl-desc { font-size: 12px; opacity: .7; line-height: 1.5; }
-.wiz-step { border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 10px 12px; }
+.wiz-step { border: 1px solid var(--tcs-border, rgba(255,255,255,.07)); border-radius: 10px; padding: 10px 12px; }
 .wiz-step-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .wiz-step-hint { font-size: 12px; opacity: .6; }
 </style>

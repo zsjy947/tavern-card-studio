@@ -68,17 +68,17 @@ function onKeydown(e: KeyboardEvent) {
 
 <style scoped>
 .palette {
-  background: #18181f; border: 1px solid rgba(139, 92, 246, 0.35);
-  border-radius: 14px; overflow: hidden; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  background: var(--tcs-overlay, #18181f); border: 1px solid var(--tcs-accent-border, rgba(139, 92, 246, 0.35));
+  border-radius: 14px; overflow: hidden; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
 }
-.palette-input { display: flex; align-items: center; padding: 8px 12px; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.palette-input { display: flex; align-items: center; padding: 8px 12px; gap: 8px; border-bottom: 1px solid var(--tcs-border, rgba(255,255,255,.07)); }
 .palette-icon { opacity: 0.6; flex: none; }
 .palette-list { max-height: 380px; overflow: auto; padding: 6px; }
 .palette-item {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px;
   border-radius: 8px; cursor: pointer; font-size: 13px;
 }
-.palette-item:hover, .palette-item-active { background: rgba(139, 92, 246, 0.14); }
+.palette-item:hover, .palette-item-active { background: var(--tcs-accent-soft, rgba(139, 92, 246, 0.14)); }
 .palette-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .palette-go { opacity: 0; font-size: 13px; }
 .palette-item:hover .palette-go, .palette-item-active .palette-go { opacity: 0.6; }

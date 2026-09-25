@@ -160,14 +160,14 @@ async function insert() {
 .beautify-tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .beautify-tpl {
   padding: 10px 12px; border-radius: 10px; cursor: pointer;
-  border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03);
+  border: 1px solid var(--tcs-border, rgba(255,255,255,.1)); background: var(--tcs-fill, rgba(255,255,255,.03));
   display: flex; flex-direction: column; gap: 4px; font-size: 13px;
 }
-.beautify-tpl:hover { border-color: rgba(139,92,246,.5); }
-.beautify-tpl-active { border-color: #8b5cf6; background: rgba(139,92,246,.1); }
+.beautify-tpl:hover { border-color: var(--tcs-accent-border, rgba(139,92,246,.5)); }
+.beautify-tpl-active { border-color: var(--tcs-accent, #8b5cf6); background: var(--tcs-accent-soft, rgba(139,92,246,.1)); }
 .beautify-tpl-desc { font-size: 11px; opacity: .65; line-height: 1.4; }
 .beautify-html-preview {
-  background: rgba(0,0,0,.35); border-radius: 8px; padding: 10px;
+  background: var(--tcs-editor-bg, rgba(0,0,0,.35)); border-radius: 8px; padding: 10px;
   font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto;
 }
 </style>

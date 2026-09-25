@@ -10,6 +10,7 @@ import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
 import { pickFiles, formatBytes } from '@/utils/file';
 import { getStore } from '@/db';
 import { useWorkspace } from '@/stores/workspace';
+import AppearanceSettings from '@/components/AppearanceSettings.vue';
 
 const message = useMessage();
 const ws = useWorkspace();
@@ -73,6 +74,8 @@ async function doImport(wipe: boolean) {
 <template>
   <div style="max-width: 820px">
     <NSpace vertical :size="14">
+      <AppearanceSettings />
+
       <NCard size="small" title="运行环境">
         <NSpace :size="10" align="center">
           <NTag :bordered="false" type="info">{{ dbInfo.driver }}</NTag>

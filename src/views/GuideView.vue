@@ -304,33 +304,33 @@ const sections: GuideSection[] = [
   display: flex; flex-direction: column; gap: 4px;
 }
 .toc-item {
-  text-align: left; background: rgba(255,255,255,.02); color: inherit;
-  border: 1px solid rgba(255,255,255,.06); border-radius: 10px;
+  text-align: left; background: var(--tcs-fill-soft, rgba(255,255,255,.02)); color: inherit;
+  border: 1px solid var(--tcs-border, rgba(255,255,255,.06)); border-radius: 10px;
   padding: 8px 10px; font-size: 12px; line-height: 1.5; cursor: pointer;
 }
-.toc-item:hover { border-color: rgba(139,92,246,.55); color: #c4b5fd; }
+.toc-item:hover { border-color: var(--tcs-accent-border, rgba(139,92,246,.55)); color: var(--tcs-accent-text, #c4b5fd); }
 .guide-body { flex: 1; min-width: 0; }
 .guide-section {
-  background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.06);
+  background: var(--tcs-fill-soft, rgba(255,255,255,.025)); border: 1px solid var(--tcs-border, rgba(255,255,255,.06));
   border-radius: 14px; padding: 16px 20px; margin-bottom: 16px;
   scroll-margin-top: 60px;
 }
-.guide-section h2 { font-size: 15px; font-weight: 800; margin: 0 0 10px; color: #d8ccff; }
+.guide-section h2 { font-size: 15px; font-weight: 800; margin: 0 0 10px; color: var(--tcs-accent-text, #d8ccff); }
 .g-p { font-size: 13px; line-height: 1.9; margin: 8px 0; opacity: .92; }
 .g-list { margin: 8px 0; padding-left: 20px; }
 .g-list li { font-size: 13px; line-height: 1.9; margin-bottom: 4px; opacity: .92; }
 .g-table-wrap { overflow-x: auto; margin: 10px 0; }
 .g-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .g-table th {
-  text-align: left; background: rgba(139,92,246,.14); color: #c4b5fd;
-  padding: 7px 10px; border: 1px solid rgba(255,255,255,.08); white-space: nowrap;
+  text-align: left; background: var(--tcs-accent-soft, rgba(139,92,246,.14)); color: var(--tcs-accent-text, #c4b5fd);
+  padding: 7px 10px; border: 1px solid var(--tcs-border, rgba(255,255,255,.08)); white-space: nowrap;
 }
-.g-table td { padding: 7px 10px; border: 1px solid rgba(255,255,255,.07); line-height: 1.7; vertical-align: top; }
+.g-table td { padding: 7px 10px; border: 1px solid var(--tcs-border, rgba(255,255,255,.07)); line-height: 1.7; vertical-align: top; }
 .g-td-first { font-weight: 700; white-space: nowrap; }
 .g-note {
   margin-top: 10px; font-size: 12.5px; line-height: 1.8;
-  background: rgba(139,92,246,.09); border-left: 3px solid #8b5cf6;
-  border-radius: 6px; padding: 8px 12px; color: #cfc3f5;
+  background: var(--tcs-accent-soft, rgba(139,92,246,.09)); border-left: 3px solid var(--tcs-accent, #8b5cf6);
+  border-radius: 6px; padding: 8px 12px; color: var(--tcs-text-2, #cfc3f5);
 }
 @media (max-width: 860px) {
   .guide-layout { flex-direction: column; }

@@ -2,7 +2,8 @@
 import type { DataStore } from './store';
 
 const DB_NAME = 'tavern-card-studio';
-const DB_VERSION = 1;
+// v2：新增 fonts / font_blobs（已装字体元信息与字节）
+const DB_VERSION = 2;
 
 export class IndexedDbStore implements DataStore {
   readonly kind = 'indexeddb' as const;
@@ -14,7 +15,7 @@ export class IndexedDbStore implements DataStore {
       req.onupgradeneeded = () => {
         const db = req.result;
         // 表（object store）按需在升级时创建；已知表全部预建
-        for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', '__meta']) {
+        for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', 'fonts', 'font_blobs', '__meta']) {
           if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: 'id' });
         }
       };

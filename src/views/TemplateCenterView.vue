@@ -217,7 +217,7 @@ async function sinkFromCard() {
 
 <style scoped>
 .tpl-preview {
-  margin-top: 6px; font-size: 12px; color: #a78bfa;
+  margin-top: 6px; font-size: 12px; color: var(--tcs-accent-text, #a78bfa);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 </style>

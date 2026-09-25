@@ -16,4 +16,8 @@ export const SETTING_KEYS = {
   pngDualWrite: 'png_dual_write',
   /** 预览用 {{user}} 默认名 */
   uiUserName: 'ui_user_name',
+  /** 界面主题 id（core/theme/themes.ts） */
+  uiTheme: 'ui_theme',
+  /** 界面字体 id（空串 = 默认字体） */
+  uiFont: 'ui_font',
 } as const;

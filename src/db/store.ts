@@ -33,6 +33,8 @@ export const TABLES = [
   'novel_projects',
   'settings',
   'categories',
+  'fonts',
+  'font_blobs',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];

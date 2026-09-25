@@ -1,20 +1,25 @@
 /**
  * 备份：全量导出/导入 zip（JSZip 打包所有表 JSON + 封面图）。
+ * 已安装字体（fonts/font_blobs）不进备份：体积大且可随时重新下载/导入。
  */
 import JSZip from 'jszip';
 import { getStore } from '@/db';
+
+/** 不参与备份的表 */
+const BACKUP_EXCLUDED = new Set(['fonts', 'font_blobs']);
 
 export async function exportBackup(): Promise<Blob> {
   const store = await getStore();
   const dump = await store.dump();
   const zip = new JSZip();
+  const tables = Object.fromEntries(Object.entries(dump).filter(([k]) => !BACKUP_EXCLUDED.has(k)));
   zip.file('manifest.json', JSON.stringify({
     app: 'tavern-card-studio',
     version: 1,
     exportedAt: new Date().toISOString(),
-    tables: Object.fromEntries(Object.entries(dump).map(([k, v]) => [k, v.length])),
+    tables: Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length])),
   }, null, 2));
-  for (const [table, rows] of Object.entries(dump)) {
+  for (const [table, rows] of Object.entries(tables)) {
     zip.file(`tables/${table}.json`, JSON.stringify(rows));
   }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });

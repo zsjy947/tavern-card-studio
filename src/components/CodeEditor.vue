@@ -1,13 +1,15 @@
 <script setup lang="ts">
-/** CodeMirror 6 轻封装（JS / HTML） */
+/** CodeMirror 6 轻封装（JS / HTML），主题跟随全局外观设置 */
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { oneDarkBundle as oneDark } from './oneDark';
+import { paperLightBundle } from './cmLight';
+import { useAppearance } from '@/stores/appearance';
 
 const props = withDefaults(
   defineProps<{
@@ -20,8 +22,14 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>();
 
+const appearance = useAppearance();
 const host = ref<HTMLDivElement | null>(null);
 let view: EditorView | null = null;
+const themeComp = new Compartment();
+
+function themeBundle() {
+  return appearance.theme.mode === 'dark' ? oneDark : paperLightBundle;
+}
 
 onMounted(() => {
   if (!host.value) return;
@@ -31,7 +39,7 @@ onMounted(() => {
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    oneDark,
+    themeComp.of(themeBundle()),
     EditorView.lineWrapping,
     EditorView.updateListener.of((u) => {
       if (u.docChanged) emit('update:modelValue', u.state.doc.toString());
@@ -47,6 +55,11 @@ onMounted(() => {
     }),
     parent: host.value,
   });
+});
+
+// 主题切换时只重配置主题扩展，保留文档 / 光标 / 历史
+watch(() => appearance.theme.mode, () => {
+  view?.dispatch({ effects: themeComp.reconfigure(themeBundle()) });
 });
 
 watch(
@@ -69,10 +82,10 @@ defineExpose({ focus: () => view?.focus() });
 
 <style scoped>
 .code-editor {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--tcs-border, rgba(255, 255, 255, 0.09));
   border-radius: 8px;
   overflow: hidden;
-  background: #282c34;
+  background: var(--tcs-editor-bg, #282c34);
 }
 .code-editor :deep(.cm-editor) { height: 100%; font-size: 13px; }
 .code-editor :deep(.cm-scroller) { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; }

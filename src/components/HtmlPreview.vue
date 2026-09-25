@@ -61,6 +61,6 @@ watch(doc, () => {
 
 <style scoped>
 .html-preview { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.html-preview-frame-wrap { border: 1px solid rgba(255,255,255,.09); border-radius: 10px; overflow: hidden; background: #101014; }
+.html-preview-frame-wrap { border: 1px solid var(--tcs-border, rgba(255,255,255,.09)); border-radius: 10px; overflow: hidden; background: transparent; }
 .html-preview-frame { width: 100%; border: 0; display: block; }
 </style>

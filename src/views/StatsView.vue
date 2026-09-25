@@ -140,11 +140,11 @@ const maxBucket = computed(() => Math.max(1, ...tokenBuckets.value.map((b) => b.
 .bar-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .bar-row { display: flex; align-items: center; gap: 10px; }
 .bar-label { width: 52px; font-size: 12px; text-align: right; opacity: .75; }
-.bar-track { flex: 1; height: 14px; background: rgba(255,255,255,.06); border-radius: 7px; overflow: hidden; }
-.bar-fill { height: 100%; background: linear-gradient(90deg, #7c3aed, #a78bfa); border-radius: 7px; transition: width .4s; }
+.bar-track { flex: 1; height: 14px; background: var(--tcs-fill, rgba(255,255,255,.06)); border-radius: 7px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--tcs-accent, #7c3aed), var(--tcs-accent-hover, #a78bfa)); border-radius: 7px; transition: width .4s; }
 .bar-value { width: 30px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .trend-chart { display: flex; align-items: flex-end; gap: 6px; height: 140px; padding: 4px 0; }
 .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
-.trend-bar { width: 70%; background: linear-gradient(180deg, #a78bfa, #7c3aed); border-radius: 4px 4px 0 0; min-height: 2px; }
+.trend-bar { width: 70%; background: linear-gradient(180deg, var(--tcs-accent-hover, #a78bfa), var(--tcs-accent, #7c3aed)); border-radius: 4px 4px 0 0; min-height: 2px; }
 .trend-day { font-size: 10px; opacity: .6; }
 </style>

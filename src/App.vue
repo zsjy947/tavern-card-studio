@@ -64,14 +64,22 @@ body,
 .tcs-app .n-scrollbar-container {
   background: transparent;
 }
-/* 内层 NLayout 显式列布局：header 定高 + content flex:auto 真正生效，
-   .n-scrollbar-container（height:100%）由此成为受限滚动视口——
-   GuideView 目录、LibraryView 分类栏等 position:sticky 全部随之生效 */
-.tcs-app > .n-layout {
+/* 布局滚动几何根治：
+   两级 n-layout 各自渲染 .n-layout-scroll-container（默认都参与滚动，header 会随页滚走，
+   且 NLayoutContent 被内容撑高、overflow:hidden 形成假滚动位使 position:sticky 全部失效）。
+   这里让两级 scroll-container 都不滚动、内层改列布局，使 NLayoutContent 内部的
+   .n-scrollbar-container 成为唯一受限滚动视口——指南目录/卡库分类栏等 sticky 随之生效 */
+.tcs-app > .n-layout-scroll-container,
+.tcs-app > .n-layout-scroll-container > .n-layout > .n-layout-scroll-container {
+  height: 100%;
+  overflow: hidden;
+}
+.tcs-app > .n-layout-scroll-container > .n-layout > .n-layout-scroll-container {
   display: flex;
   flex-direction: column;
 }
-.tcs-app > .n-layout > .n-layout-content {
+.tcs-app .n-layout-content {
+  flex: 1 1 0%;
   min-height: 0;
 }
 </style>

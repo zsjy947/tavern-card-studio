@@ -105,10 +105,11 @@ function escapeRe(s: string): string {
  * 返回新 payload（不改原对象）；改名非法或与现有 key 冲突时抛错。
  */
 export function renameStatusbarVariable(payload: StatusbarPayload, oldKey: string, newKey: string): StatusbarPayload {
-  if (oldKey === newKey) return structuredClone(payload);
+  if (oldKey === newKey) return JSON.parse(JSON.stringify(payload)) as StatusbarPayload;
   if (!VAR_KEY_RE.test(newKey)) throw new Error(`变量 key「${newKey}」非法：需小写字母/下划线开头，仅含小写字母、数字、下划线`);
   if (payload.variables.some((v) => v.key === newKey)) throw new Error(`变量 key「${newKey}」已存在`);
-  const next = structuredClone(payload);
+  // 传入的可能是 Vue 响应式代理（structuredClone 会抛错），用 JSON 深拷贝
+  const next = JSON.parse(JSON.stringify(payload)) as StatusbarPayload;
   const getVarRe = new RegExp(`\\{\\{getvar::${escapeRe(oldKey)}\\}\\}`, 'g');
   const wordRe = new RegExp(`\\b${escapeRe(oldKey)}\\b`, 'g');
   const rewrite = (s: string) => s.replace(getVarRe, `{{getvar::${newKey}}}`);

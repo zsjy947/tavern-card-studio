@@ -41,7 +41,8 @@ const chosenCard = computed(() => cards.value.find((c) => c.id === chosenCardId.
 function chooseTpl(id: string) {
   chosenTplId.value = id;
   const p = templates.value.find((t) => t.id === id)?.payload as StatusbarPayload | undefined;
-  draft.value = p ? structuredClone(p) : null;
+  // payload 是深层响应式代理，structuredClone 会抛 DataCloneError，用 JSON 深拷贝
+  draft.value = p ? (JSON.parse(JSON.stringify(p)) as StatusbarPayload) : null;
   varValues.value = {};
   if (p) for (const v of p.variables) varValues.value[v.key] = p.previewMock[v.key] ?? v.initial;
   customCss.value = p?.css ?? '';
@@ -174,11 +175,12 @@ async function insert() {
               <template v-for="(v, i) in draft.variables" :key="v.key">
                 <div v-if="groupHeaderOf(i)" class="var-group-head">{{ groupHeaderOf(i) }}</div>
                 <div class="var-row">
-                  <NInput
-                    size="small" :value="v.key" :disabled="v.key === 'radar_points'"
-                    placeholder="key" class="var-key"
-                    @change="(val: string) => onVarKeyChange(i, val.trim())"
-                  />
+                  <input
+                    class="var-key" :value="v.key" :disabled="v.key === 'radar_points'"
+                    placeholder="key" spellcheck="false"
+                    @change="onVarKeyChange(i, ($event.target as HTMLInputElement).value.trim())"
+                    @keyup.enter="($event.target as HTMLInputElement).blur()"
+                  >
                   <NInput size="small" :value="v.label" placeholder="显示名" class="var-label"
                     @update:value="(val: string) => onVarLabelChange(i, val)" />
                   <NInput v-if="v.key.includes('url')" v-model:value="varValues[v.key]!" size="small" style="flex: 1; min-width: 140px" placeholder="本地文件夹路径或在线图片链接">
@@ -249,7 +251,14 @@ async function insert() {
   font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto;
 }
 .var-row { display: flex; gap: 6px; align-items: center; }
-.var-key { width: 130px; flex-shrink: 0; font-family: monospace; }
+.var-key {
+  width: 130px; flex-shrink: 0; font-family: monospace; font-size: 12px;
+  border: 1px solid var(--tcs-border, rgba(255,255,255,.15)); border-radius: 4px;
+  background: var(--tcs-input, transparent); color: inherit;
+  padding: 0 8px; height: 28px; outline: none;
+}
+.var-key:focus { border-color: var(--tcs-accent, #8b5cf6); }
+.var-key:disabled { opacity: .55; }
 .var-label { width: 110px; flex-shrink: 0; }
 .var-group-head {
   font-size: 11px; font-weight: 700; opacity: .7; letter-spacing: 1px;

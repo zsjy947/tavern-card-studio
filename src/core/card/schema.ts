@@ -20,28 +20,32 @@ export const SPEC_V3 = 'chara_card_v3';
 
 export const bookPositionEnum = z.enum(['before_char', 'after_char']);
 
+/** 真实社区卡常见 0/1 数字布尔（如 delay_until_recursion: 0，ST 部分版本导出形态），宽容为 boolean */
+const boolish = z.preprocess((v) => (typeof v === 'number' ? v !== 0 : v), z.boolean().optional());
+const boolishNullable = z.preprocess((v) => (typeof v === 'number' ? v !== 0 : v), z.boolean().nullable().optional());
+
 export const bookEntryExtensionSchema = z
   .object({
     // SillyTavern 全局世界书专属字段，双向互转时存放于此（见 core/lorebook）
     position: z.number().int().optional(),
-    exclude_recursion: z.boolean().optional(),
-    prevent_recursion: z.boolean().optional(),
-    delay_until_recursion: z.boolean().optional(),
+    exclude_recursion: boolish,
+    prevent_recursion: boolish,
+    delay_until_recursion: boolish,
     display_index: z.number().int().optional(),
     probability: z.number().optional(),
-    useProbability: z.boolean().optional(),
+    useProbability: boolish,
     depth: z.number().int().optional(),
     selectiveLogic: z.number().int().optional(),
     group: z.string().optional(),
-    groupOverride: z.boolean().optional(),
+    groupOverride: boolish,
     groupWeight: z.number().optional(),
     scan_depth: z.number().int().nullable().optional(),
-    case_sensitive: z.boolean().nullable().optional(),
-    match_whole_words: z.boolean().nullable().optional(),
-    use_group_scoring: z.boolean().nullable().optional(),
+    case_sensitive: boolishNullable,
+    match_whole_words: boolishNullable,
+    use_group_scoring: boolishNullable,
     automation_id: z.string().optional(),
     role: z.number().int().optional(),
-    vectorized: z.boolean().optional(),
+    vectorized: boolish,
     sticky: z.number().nullable().optional(),
     cooldown: z.number().nullable().optional(),
     delay: z.number().nullable().optional(),
@@ -57,7 +61,12 @@ export const bookEntrySchema = z
     id: z.number().int(),
     keys: z.array(z.string()).default([]),
     secondary_keys: z.array(z.string()).default([]),
-    comment: z.string().default(''),
+    // 真实社区卡偶见 comment 为数组（标签式标题）或数字：统一收敛为字符串
+    comment: z.preprocess((v) => {
+      if (v == null) return undefined;
+      if (Array.isArray(v)) return v.map(String).join('、');
+      return typeof v === 'string' ? v : String(v);
+    }, z.string().default('')),
     content: z.string().default(''),
     constant: z.boolean().default(false),
     selective: z.boolean().default(false),
@@ -193,7 +202,8 @@ export const cardDataBaseSchema = z.object({
       depth_prompt: depthPromptSchema.optional(),
       regex_scripts: z.preprocess(fillMissingIds((i) => `script_${i}`), z.array(regexScriptSchema).optional()),
       TavernHelper_scripts: z.preprocess(fillMissingIds((i) => `ths_${i}`), z.array(tavernHelperScriptSchema).optional()),
-      tavern_helper: z.record(z.unknown()).optional(),
+      // 真实社区卡 tavern_helper 存在数组形态（不同 TavernHelper 版本）： union 透传保留原数据
+      tavern_helper: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional(),
       QuickReply: z.preprocess(fillMissingIds((i) => `qr_${i}`), z.array(quickReplySchema).optional()),
     })
     .partial()

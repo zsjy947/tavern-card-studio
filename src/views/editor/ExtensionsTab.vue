@@ -1,9 +1,10 @@
 <script setup lang="ts">
-/** 扩展 Tab：depth_prompt / talkativeness / world / 原始 JSON 编辑 */
+/** 扩展 Tab：左侧扩展项列表 + 右侧编辑区；原始 JSON 走全屏抽屉，不再挤压布局 */
 import { computed, ref, watch } from 'vue';
 import {
-  NSpace, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NTag, useMessage, NTabs, NTab,
+  NSpace, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NTag, useMessage, NDrawer, NDrawerContent, NButton, NIcon,
 } from 'naive-ui';
+import { CodeWorkingOutline } from '@vicons/ionicons5';
 import type { AnyCard } from '@/core/card';
 import CodeEditor from '@/components/CodeEditor.vue';
 
@@ -27,11 +28,22 @@ function setExtKey(key: string, v: unknown) {
   emit('change');
 }
 
-/* 原始 JSON 编辑（带合法性校验） */
+/* 左侧列表选中项 */
+type Section = 'depth' | 'talk' | 'fav' | 'world' | 'raw';
+const sections: { key: Section; label: string; desc: string }[] = [
+  { key: 'depth', label: '深度注入', desc: 'depth_prompt' },
+  { key: 'talk', label: '发言倾向', desc: 'talkativeness' },
+  { key: 'fav', label: '收藏', desc: 'fav' },
+  { key: 'world', label: '全局世界书', desc: 'world' },
+  { key: 'raw', label: '原始 JSON', desc: '整卡直编' },
+];
+const active = ref<Section>('depth');
+
+/* 原始 JSON 编辑（全屏抽屉；打开时重新序列化，保证拿到表单最新改动） */
+const showRaw = ref(false);
 const rawJson = ref('');
-const rawTab = ref<'form' | 'raw'>('form');
-watch(rawTab, (t) => {
-  if (t === 'raw') rawJson.value = JSON.stringify(props.card, null, 2);
+watch(showRaw, (open) => {
+  if (open) rawJson.value = JSON.stringify(props.card, null, 2);
 });
 const rawError = ref('');
 
@@ -68,9 +80,21 @@ const ROLE_OPTIONS = [
 </script>
 
 <template>
-  <NTabs v-model:value="rawTab" type="segment" size="small">
-    <NTab name="form" tab="表单">
-      <NSpace vertical :size="14" style="max-width: 760px">
+  <div class="ext-layout">
+    <div class="ext-nav">
+      <button
+        v-for="s in sections" :key="s.key"
+        class="ext-nav-item" :class="{ 'ext-nav-item-active': active === s.key }"
+        @click="active = s.key"
+      >
+        <b>{{ s.label }}</b>
+        <span class="ext-nav-desc">{{ s.desc }}</span>
+      </button>
+    </div>
+
+    <div class="ext-body">
+      <!-- 深度注入 -->
+      <NSpace v-if="active === 'depth'" vertical :size="14" style="max-width: 760px">
         <NFormItem label="depth_prompt（深度注入的提示，随对话深度生效）">
           <div class="field-block">
             <NInput type="textarea" :rows="4" :value="depth.prompt" @update:value="(v: string) => setDepth({ prompt: v })" />
@@ -83,43 +107,68 @@ const ROLE_OPTIONS = [
             </NSpace>
           </div>
         </NFormItem>
+      </NSpace>
 
-        <div class="field-row">
-          <NFormItem label="talkativeness（群聊主动发言倾向）">
-            <NInputNumber size="small" :value="Number(ext.talkativeness ?? 0.5)" :min="0" :max="1" :step="0.1"
-              @update:value="(v: number | null) => setExtKey('talkativeness', v ?? 0.5)" />
-          </NFormItem>
-          <NFormItem label="fav（收藏）">
-            <NSwitch :value="Boolean(ext.fav)" @update:value="(v: boolean) => setExtKey('fav', v)" />
-          </NFormItem>
+      <!-- 发言倾向 / 收藏 / 全局世界书 -->
+      <NSpace v-else-if="active === 'talk' || active === 'fav' || active === 'world'" vertical :size="14" style="max-width: 560px">
+        <NFormItem v-if="active === 'talk'" label="talkativeness（群聊主动发言倾向）">
+          <NInputNumber size="small" :value="Number(ext.talkativeness ?? 0.5)" :min="0" :max="1" :step="0.1"
+            @update:value="(v: number | null) => setExtKey('talkativeness', v ?? 0.5)" />
+        </NFormItem>
+        <NFormItem v-else-if="active === 'fav'" label="fav（收藏）">
+          <NSwitch :value="Boolean(ext.fav)" @update:value="(v: boolean) => setExtKey('fav', v)" />
+        </NFormItem>
+        <template v-else>
           <NFormItem label="world（关联全局世界书名）">
             <NInput :value="String(ext.world ?? '')" @update:value="(v: string) => setExtKey('world', v)" placeholder="留空使用内嵌 character_book" />
           </NFormItem>
-        </div>
-
-        <NTag :bordered="false" type="info">
-          正则脚本在「正则」页编辑；助手脚本在「脚本」页编辑；其余扩展字段用右侧原始 JSON 编辑
-        </NTag>
+          <NTag :bordered="false" type="info" size="small">
+            内嵌世界书在「世界书」页编辑；正则脚本在「正则」页；助手脚本在「脚本」页
+          </NTag>
+        </template>
       </NSpace>
-    </NTab>
-    <NTab name="raw" tab="原始 JSON">
-      <NSpace vertical :size="8">
-        <CodeEditor v-model="rawJson" language="javascript" height="480px" />
-        <NSpace align="center">
-          <button class="raw-apply" @click="applyRaw">应用 JSON</button>
+
+      <!-- 原始 JSON 入口 -->
+      <NSpace v-else-if="active === 'raw'" vertical :size="14" style="max-width: 560px">
+        <NTag :bordered="false" type="warning" size="small">
+          直接编辑整卡 JSON：适合批量粘贴/修复/社区卡微调。应用前会做形状校验，改坏会导致其他页异常
+        </NTag>
+        <NButton type="primary" secondary @click="showRaw = true">
+          <template #icon><NIcon><CodeWorkingOutline /></NIcon></template>
+          打开原始 JSON 编辑器
+        </NButton>
+      </NSpace>
+    </div>
+  </div>
+
+  <!-- 全屏抽屉：raw 编辑不挤压布局 -->
+  <NDrawer v-model:show="showRaw" :width="'100%'" style="max-width: 100vw">
+    <NDrawerContent title="原始 JSON（整卡）" closable>
+      <div class="raw-wrap">
+        <CodeEditor v-model="rawJson" language="javascript" height="calc(100vh - 190px)" />
+        <NSpace align="center" style="margin-top: 10px">
+          <NButton type="primary" @click="applyRaw">应用 JSON</NButton>
+          <NButton v-if="!rawError" quaternary @click="showRaw = false">关闭</NButton>
           <span v-if="rawError" style="color: var(--tcs-bad, #f87171); font-size: 12px">{{ rawError }}</span>
         </NSpace>
-      </NSpace>
-    </NTab>
-  </NTabs>
+      </div>
+    </NDrawerContent>
+  </NDrawer>
 </template>
 
 <style scoped>
-.field-block { width: 100%; }
-.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
-.raw-apply {
-  background: var(--tcs-accent, #8b5cf6); color: #fff; border: none; border-radius: 6px;
-  padding: 5px 14px; cursor: pointer; font-size: 13px;
+.ext-layout { display: flex; gap: 18px; align-items: flex-start; }
+.ext-nav { display: flex; flex-direction: column; gap: 6px; width: 190px; flex-shrink: 0; }
+.ext-nav-item {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  border: 1px solid var(--tcs-border, rgba(255,255,255,.08)); border-radius: 10px;
+  background: transparent; padding: 10px 12px; cursor: pointer; font-size: 13px;
+  transition: border-color .15s;
 }
-.raw-apply:hover { background: var(--tcs-accent-hover, #a78bfa); }
+.ext-nav-item:hover { border-color: var(--tcs-accent-border, rgba(139,92,246,.4)); }
+.ext-nav-item-active { border-color: var(--tcs-accent, #8b5cf6); background: var(--tcs-accent-soft, rgba(139,92,246,.08)); }
+.ext-nav-desc { font-size: 11px; opacity: .55; }
+.ext-body { flex: 1; min-width: 0; }
+.field-block { width: 100%; }
+.raw-wrap { height: 100%; }
 </style>

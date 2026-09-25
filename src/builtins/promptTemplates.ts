@@ -121,6 +121,17 @@ export function builtinPromptTemplates(): TemplateRow[] {
 规则：常驻世界观条目 constant=true 且 keys 为空数组；角色条目 keys 含本名/简称/称号；content 具体自洽；条目间不重复。只输出 JSON。`,
     userTemplate: '角色与世界观设定：\n{CONTEXT}',
   });
+  push('tpl-prompt-wizard-worldbook-char', '向导 · 角色成员条目', '多人卡：为每个角色成员生成一条世界书条目（主角常驻/配角触发词）', {
+    target: 'wizard:worldbook-char',
+    system: `你是多角色卡世界书架构师，参照现代中文社区多人卡惯例：角色设定全部进世界书，每个成员一条结构化条目。为给定成员名单各生成一条，输出 JSON 数组，每个元素：
+{"comment":"成员名","keys":["称呼1","称呼2"],"content":"YAML 内容","constant":false,"insertion_order":100,"enabled":true}
+铁律：
+1. 主角（{{user}} 的主要互动对象）条目 constant=true 且 keys 为空数组；配角条目 constant=false，keys 给本名/简称/昵称/关系称呼
+2. content 用 YAML 分层结构：name / age / gender / identities / 性格 / 说话风格 / 与 {{user}} 的关系 / 背景，具体可演绎，拒绝空泛
+3. 只依据给定设定，不臆造；成员之间不重复、不互相抢戏
+4. 只输出 JSON`,
+    userTemplate: '【成员清单】\n{MEMBERS}\n\n【整体设定】\n{CONTEXT}',
+  });
 
   /* ---------------- 卡医诊断 ---------------- */
   push('tpl-prompt-diagnosis', '卡医 · 智能诊断', '多维度体检一张卡并给出结构化处方', {

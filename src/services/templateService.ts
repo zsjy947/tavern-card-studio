@@ -12,14 +12,27 @@ async function getSetting<T>(key: string): Promise<T | undefined> {
   return (await getStore()).get<{ id: string; value: T }>('settings', key)?.then((r) => r?.value);
 }
 
+/** 进程内已播种标记：避免每次 listTemplates 都做缺漏检查 */
+let seededInMemory = false;
+
+/**
+ * 内置模板播种（按 id 增量）：只补缺失的内置模板，不覆盖已有行。
+ * 旧版的一次性种子标记会让后续版本新增的内置提示词/模板无法进入老库，
+ * 这里改为每个进程首个模板操作时做一次缺漏补种。
+ */
 export async function ensureSeeded(): Promise<void> {
+  if (seededInMemory) return;
   const store = await getStore();
-  if (await getSetting<boolean>(SEED_FLAG)) return;
+  const existing = new Set((await store.list<TemplateRow>('templates')).map((t) => t.id));
+  const missing = BUILTIN_TEMPLATES.filter((t) => !existing.has(t.id));
   const now = new Date().toISOString();
-  for (const t of BUILTIN_TEMPLATES) {
+  for (const t of missing) {
     await store.put('templates', t.id, { ...t, builtin: true, createdAt: now, updatedAt: now } satisfies TemplateRow);
   }
-  await store.put('settings', SEED_FLAG, { id: SEED_FLAG, value: true });
+  if (!(await getSetting<boolean>(SEED_FLAG))) {
+    await store.put('settings', SEED_FLAG, { id: SEED_FLAG, value: true });
+  }
+  seededInMemory = true;
 }
 
 export async function listTemplates(kind?: TemplateKind): Promise<TemplateRow[]> {

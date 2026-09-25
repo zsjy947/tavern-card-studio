@@ -5,23 +5,30 @@
  */
 import { computed, ref, watch } from 'vue';
 import { NButton, NSpace, NTag } from 'naive-ui';
+import { useAppearance } from '@/stores/appearance';
 
 const props = defineProps<{
   html: string;
   css?: string;
   js?: string;
-  /** 预览主题：模仿酒馆深/浅消息气泡 */
+  /** 预览主题：模仿酒馆深/浅消息气泡；缺省跟随全局外观明暗 */
   theme?: 'dark' | 'light';
   height?: string;
 }>();
+
+const appearance = useAppearance();
+const effectiveTheme = computed<'dark' | 'light'>(() => {
+  if (props.theme) return props.theme;
+  return appearance.theme.mode === 'light' ? 'light' : 'dark';
+});
 
 const frame = ref<HTMLIFrameElement | null>(null);
 const key = ref(0);
 
 const doc = computed(() => {
-  const bg = props.theme === 'light' ? '#f7f7f8' : '#101014';
-  const fg = props.theme === 'light' ? '#1f2328' : '#d7d7de';
-  const mq = props.theme === 'light' ? '#57606a' : '#8b8b96';
+  const bg = effectiveTheme.value === 'light' ? '#f7f7f8' : '#101014';
+  const fg = effectiveTheme.value === 'light' ? '#1f2328' : '#d7d7de';
+  const mq = effectiveTheme.value === 'light' ? '#57606a' : '#8b8b96';
   return `<!doctype html><html><head><meta charset="utf-8">
 <style>
   html,body{margin:0;padding:12px;background:${bg};color:${fg};

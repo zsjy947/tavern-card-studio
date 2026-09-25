@@ -2,7 +2,7 @@
 /** 完整生成向导：选模板 → 基础设定 → 字段工作台（手填与 AI 生成等价）→ 完成入库 */
 import { computed, onMounted, ref, watch } from 'vue';
 import {
-  NSpace, NButton, NStep, NSteps, NInput, NTag, useMessage, NCard, NIcon, NRadioGroup, NRadioButton, NEmpty, NDynamicTags,
+  NSpace, NButton, NStep, NSteps, NInput, NTag, useMessage, NCard, NIcon, NRadioGroup, NRadioButton, NEmpty, NDynamicTags, NText,
 } from 'naive-ui';
 import { SparklesOutline, CheckmarkOutline, ArrowForwardOutline, AddOutline, TrashOutline } from '@vicons/ionicons5';
 import { listTemplates } from '@/services/templateService';
@@ -11,7 +11,7 @@ import type { CardTemplatePayload } from '@/builtins/cardTemplates';
 import type { PromptPayload } from '@/builtins/promptTemplates';
 import { blankCard } from '@/core/card';
 import * as cardService from '@/services/cardService';
-import { runFieldAi } from '@/services/aiService';
+import { runFieldAi, runFieldAiJson } from '@/services/aiService';
 import { useWorkspace } from '@/stores/workspace';
 import { useRouter } from 'vue-router';
 
@@ -37,6 +37,107 @@ const customFields = ref<{ key: string; label: string }[]>([]);
 const newFieldKey = ref('');
 const newFieldLabel = ref('');
 const autoRan = ref(false);
+
+/** 角色成员清单（多人卡）：finish 时生成/写入 character_book.entries */
+interface WizardMember {
+  name: string;
+  role: 'lead' | 'support';
+  /** 触发称呼，逗号/顿号分隔 */
+  aliases: string;
+  /** 世界书条目 YAML 内容（AI 生成或手填） */
+  content: string;
+}
+const members = ref<WizardMember[]>([]);
+
+function addMember() {
+  members.value.push({ name: '', role: 'support', aliases: '', content: '' });
+}
+
+function removeMember(i: number) {
+  members.value.splice(i, 1);
+}
+
+interface MemberBookEntry {
+  comment?: string;
+  keys?: string[];
+  content?: string;
+  constant?: boolean;
+}
+
+function membersBrief(list: WizardMember[]): string {
+  return list
+    .map((m, i) => `${i + 1}. 名称：${m.name || '（待定）'}｜身份：${m.role === 'lead' ? '主角（与 {{user}} 主要互动）' : '配角'}｜触发称呼：${m.aliases || '无'}`)
+    .join('\n');
+}
+
+/** 为指定成员（缺省为空缺者）批量生成世界书条目 */
+async function genMemberEntries(targets?: WizardMember[]) {
+  const list = targets ?? members.value.filter((m) => m.name.trim() && !m.content.trim());
+  if (!list.length) {
+    message.info(targets ? '没有需要生成的成员' : '所有成员都已有条目内容');
+    return;
+  }
+  if (list.some((m) => !m.name.trim())) {
+    message.error('先给成员填写名称');
+    return;
+  }
+  if (busy.value) {
+    message.warning('已有生成任务进行中，请等待完成');
+    return;
+  }
+  const p = await findPrompt('wizard:worldbook-char');
+  if (!p) {
+    message.error('缺少「向导 · 角色成员条目」内置提示词');
+    return;
+  }
+  busy.value = 'members';
+  try {
+    const entries = await runFieldAiJson<MemberBookEntry[]>({
+      feature: '向导:角色成员条目',
+      systemPrompt: p.system,
+      userPrompt: p.userTemplate
+        .replaceAll('{MEMBERS}', membersBrief(list))
+        .replaceAll('{CONTEXT}', contextText() + (briefExpanded.value ? `\n\n【扩写设定】\n${briefExpanded.value}` : '')),
+      jsonSchemaHint: '[{"comment":"成员名","keys":["称呼"],"content":"YAML","constant":false}]',
+    });
+    let filled = 0;
+    for (const m of list) {
+      const hit = entries.find((e) => (e.comment ?? '').trim() === m.name.trim())
+        ?? entries.find((e) => (e.comment ?? '').includes(m.name.trim()));
+      if (hit?.content) {
+        m.content = hit.content;
+        if (hit.constant !== undefined) m.role = hit.constant ? 'lead' : 'support';
+        filled++;
+      }
+    }
+    if (filled) message.success(`已生成 ${filled}/${list.length} 个成员条目，可继续修改`);
+    else message.error('生成结果与成员名单匹配失败，请检查成员名称后重试');
+  } catch (e) {
+    message.error((e as Error).message);
+  } finally {
+    busy.value = '';
+  }
+}
+
+/** 成员条目 → 世界书 entry（主角 constant 蓝灯、配角触发词） */
+function memberToEntry(m: WizardMember, id: number): Record<string, unknown> {
+  const aliases = m.aliases.split(/[，,、\s]+/).map((s) => s.trim()).filter(Boolean);
+  const isLead = m.role === 'lead';
+  return {
+    id,
+    keys: isLead ? [] : [...new Set([m.name.trim(), ...aliases])],
+    secondary_keys: [],
+    comment: m.name.trim(),
+    content: m.content,
+    constant: isLead,
+    selective: false,
+    insertion_order: 100,
+    enabled: true,
+    position: 'before_char',
+    use_regex: false,
+    extensions: { position: 0, display_index: id, probability: 100, useProbability: true, depth: 4, selectiveLogic: 0 },
+  };
+}
 
 onMounted(async () => {
   templates.value = await listTemplates('card');
@@ -191,12 +292,29 @@ async function finish() {
     message.error('至少需要角色名、描述与开场白（手填或 AI 生成均可）');
     return;
   }
+  const named = members.value.filter((m) => m.name.trim());
+  if (named.some((m) => !m.content.trim())) {
+    // 有成员但缺条目：入库前补齐（失败则中断，避免半成品卡）
+    await genMemberEntries(named.filter((m) => !m.content.trim()));
+    if (named.some((m) => !m.content.trim())) {
+      message.error('仍有成员条目未生成（可手填 YAML 内容后重试，或删除该成员）');
+      return;
+    }
+  }
   const card = blankCard(cardName.value.trim());
   const d = card.data as Record<string, unknown>;
   for (const [k, v] of Object.entries(outputs.value)) {
     if (v.trim()) d[k] = v;
   }
   d.tags = [...new Set([...draftTags.value])];
+  // 成员清单 → character_book.entries（多人卡心智：成员设定全部进世界书）
+  if (named.length) {
+    const book = (d.character_book ?? { entries: [] }) as { entries?: unknown[] };
+    const existing = Array.isArray(book.entries) ? book.entries : [];
+    let nextId = existing.reduce<number>((mx, e) => Math.max(mx, Number((e as { id?: number }).id ?? -1)), -1) + 1;
+    book.entries = [...existing, ...named.map((m) => memberToEntry(m, nextId++))];
+    d.character_book = book;
+  }
   const row = await cardService.createCard(cardName.value.trim(), card);
   await ws.refreshCards(true);
   message.success('整卡已生成并入库，去编辑器检查');
@@ -284,6 +402,39 @@ async function finish() {
           <NInput v-model:value="outputs[f.key]!" type="textarea" :rows="6" :placeholder="`可直接手写${f.label}，或点右上角 AI 生成`" />
         </div>
 
+        <!-- 角色成员清单（多人卡）：条目写入世界书，主角常驻、配角触发词 -->
+        <div class="wiz-step">
+          <div class="wiz-step-head">
+            <b>角色成员（多人卡可选）</b>
+            <span class="wiz-step-hint">成员设定生成到世界书条目：主角常驻注入，配角按称呼触发；单人卡可留空</span>
+            <NSpace :size="6" style="margin-left: auto">
+              <NButton size="tiny" secondary :loading="busy === 'members'" @click="genMemberEntries()">
+                <template #icon><NIcon><SparklesOutline /></NIcon></template>
+                生成空缺条目
+              </NButton>
+              <NButton size="tiny" quaternary @click="addMember">+ 添加成员</NButton>
+            </NSpace>
+          </div>
+          <template v-if="members.length">
+            <div v-for="(m, i) in members" :key="i" class="wiz-member">
+              <NSpace :size="8" align="center" wrap>
+                <NInput v-model:value="m.name" size="small" placeholder="成员名称" style="width: 140px" />
+                <NRadioGroup v-model:value="m.role" size="small">
+                  <NRadioButton value="lead">主角（常驻）</NRadioButton>
+                  <NRadioButton value="support">配角（触发）</NRadioButton>
+                </NRadioGroup>
+                <NInput v-model:value="m.aliases" size="small" placeholder="触发称呼，逗号分隔（如：小婉, 婉儿）" style="flex: 1; min-width: 200px" />
+                <NButton size="tiny" secondary :loading="busy === 'members'" :disabled="!m.name.trim()" @click="genMemberEntries([m])">生成此条</NButton>
+                <NButton size="tiny" quaternary type="error" @click="removeMember(i)">移除</NButton>
+              </NSpace>
+              <NInput v-model:value="m.content" type="textarea" :rows="4"
+                placeholder="条目内容（YAML：name/性格/说话风格/与 {{user}} 的关系…）；可手填，或点「生成此条」"
+                style="margin-top: 8px" />
+            </div>
+          </template>
+          <NText v-else depth="3" style="font-size: 12px">尚未添加成员。多人卡（如事件导向模板）建议为每个 NPC 建一条</NText>
+        </div>
+
         <!-- 自定义字段 -->
         <div v-for="f in customFields" :key="f.key" class="wiz-step">
           <div class="wiz-step-head">
@@ -346,4 +497,5 @@ async function finish() {
 .wiz-step-hint { font-size: 12px; opacity: .6; }
 .wiz-meta-row { display: flex; align-items: center; gap: 10px; }
 .wiz-meta-label { font-size: 13px; opacity: .8; width: 90px; flex-shrink: 0; }
+.wiz-member { border: 1px dashed var(--tcs-border, rgba(255,255,255,.1)); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
 </style>

@@ -8,9 +8,9 @@ dist-ssr/
 coverage/
 *.tsbuildinfo
 
-# Tauri 生成物
+# Tauri 生成物（target/ 构建产物、gen/ ACL schema 自动生成）
 src-tauri/target/
-src-tauri/gen/schemas/
+src-tauri/gen/
 
 # 本地数据与产物
 /data/

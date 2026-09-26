@@ -116,10 +116,10 @@ const columns = [
 
 /* ---------------- ST 全局世界书互导 ---------------- */
 
-function exportWorldInfo() {
+async function exportWorldInfo() {
   const wi = characterBookToWorldInfo(book.value);
-  downloadText(JSON.stringify({ entries: wi.entries, name: book.value.name ?? props.card.data.name }, null, 2), `${book.value.name || props.card.data.name}-世界书.json`);
-  message.success('已导出 ST 全局世界书 JSON');
+  const path = await downloadText(JSON.stringify({ entries: wi.entries, name: book.value.name ?? props.card.data.name }, null, 2), `${book.value.name || props.card.data.name}-世界书.json`);
+  message.success(path ? `已导出 ST 全局世界书 JSON：${path}` : '已导出 ST 全局世界书 JSON');
 }
 
 async function importWorldInfo() {

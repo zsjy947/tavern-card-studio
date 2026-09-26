@@ -79,8 +79,9 @@ async function doDelete(t: TemplateRow) {
   }
 }
 
-function doExport(t: TemplateRow) {
-  downloadText(exportTemplate(t), `${t.name}.tcs-template.json`);
+async function doExport(t: TemplateRow) {
+  const path = await downloadText(exportTemplate(t), `${t.name}.tcs-template.json`);
+  message.success(path ? `已导出：${path}` : `已导出「${t.name}」`);
 }
 
 async function doImport() {

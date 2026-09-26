@@ -9,6 +9,8 @@ import { exportBackup, importBackup, downloadBlob, timestampName } from '@/servi
 import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
 import { pickFiles, formatBytes } from '@/utils/file';
 import { getStore, consumeDegradedNotice } from '@/db';
+import { isTauri } from '@/db/tauri';
+import { getExportDir, setExportDir, pickExportDir, openExportDir } from '@/services/exportService';
 import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
 import AppearanceSettings from '@/components/AppearanceSettings.vue';
@@ -20,6 +22,10 @@ const busy = ref('');
 const dbInfo = ref<{ driver: string; tables: Record<string, number> }>({ driver: '', tables: {} });
 const userName = ref('User');
 const dualWrite = ref(true);
+/* 导出文件夹（桌面端） */
+const isDesktop = isTauri();
+const exportDir = ref('');
+const exportDirPicking = ref(false);
 
 onMounted(async () => {
   // 桌面 SQLite 启动期降级过的话，这里一次性提示
@@ -37,7 +43,32 @@ onMounted(async () => {
   // 偏好项从库加载（持久化，跨会话生效）
   userName.value = await getSetting(SETTING_KEYS.uiUserName, 'User');
   dualWrite.value = await getSetting(SETTING_KEYS.pngDualWrite, true);
+  if (isDesktop) {
+    getExportDir().then((d) => (exportDir.value = d)).catch((e) => console.error('导出目录读取失败：', e));
+  }
 });
+
+async function chooseExportDir() {
+  exportDirPicking.value = true;
+  try {
+    const picked = await pickExportDir();
+    if (picked) {
+      await setExportDir(picked);
+      exportDir.value = picked;
+      message.success('导出文件夹已更新');
+    }
+  } catch (e) {
+    message.error((e as Error).message);
+  } finally {
+    exportDirPicking.value = false;
+  }
+}
+
+async function resetExportDir() {
+  await setExportDir(null);
+  exportDir.value = await getExportDir();
+  message.success('已恢复默认导出文件夹');
+}
 
 async function persistUserName(v: string) {
   ws.userName = v;
@@ -53,8 +84,8 @@ async function doExport() {
   busy.value = 'export';
   try {
     const blob = await exportBackup();
-    downloadBlob(blob, timestampName('tavern-card-studio-backup', 'zip'));
-    message.success('备份已导出');
+    const path = await downloadBlob(blob, timestampName('tavern-card-studio-backup', 'zip'));
+    message.success(path ? `备份已导出：${path}` : '备份已导出');
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -117,6 +148,14 @@ async function doImport(wipe: boolean) {
       </NCard>
 
       <NCard size="small" title="偏好">
+        <NFormItem v-if="isDesktop" label="导出文件夹（卡/备份/模板/世界书导出的保存位置）" label-placement="left">
+          <NSpace :size="8" align="center" style="width: 100%">
+            <NText code style="font-size: 12px; word-break: break-all">{{ exportDir || '读取中…' }}</NText>
+            <NButton size="tiny" secondary :loading="exportDirPicking" @click="chooseExportDir">选择文件夹…</NButton>
+            <NButton size="tiny" quaternary @click="openExportDir().catch((e) => message.error((e as Error).message))">打开文件夹</NButton>
+            <NButton size="tiny" quaternary @click="resetExportDir">恢复默认</NButton>
+          </NSpace>
+        </NFormItem>
         <NFormItem label="默认 {{user}} 名（预览用）" label-placement="left">
           <NInput v-model:value="userName" style="width: 200px" @update:value="persistUserName" />
         </NFormItem>

@@ -51,18 +51,20 @@ export async function importBackup(blob: Blob | Uint8Array, opts: { wipe?: boole
   return { tables: counts };
 }
 
-/** 浏览器下载工具 */
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+/** 浏览器下载工具 / 桌面端写全局导出目录（见 exportService） */
+import { saveExportFile } from './exportService';
+
+/**
+ * 保存 blob。桌面端返回写入的完整路径；浏览器端走 <a download> 返回 null。
+ * 历史函数名保留 download*，调用方按需 await 获取路径。
+ */
+export async function downloadBlob(blob: Blob, filename: string): Promise<string | null> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return saveExportFile({ name: filename, bytes, mime: blob.type || 'application/octet-stream' });
 }
 
-export function downloadText(text: string, filename: string, mime = 'application/json'): void {
-  downloadBlob(new Blob([text], { type: mime }), filename);
+export async function downloadText(text: string, filename: string, mime = 'application/json'): Promise<string | null> {
+  return saveExportFile({ name: filename, text, mime });
 }
 
 export function timestampName(prefix: string, ext: string): string {

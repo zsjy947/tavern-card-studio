@@ -173,7 +173,8 @@ async function exportSelected(kind: 'json' | 'png') {
     return;
   }
   if (cards.length === 1 && kind === 'json') {
-    backupService.downloadText(cardService.cardToJsonText(cards[0]!.card), `${sanitizeFilename(cards[0]!.name)}.json`);
+    const path = await backupService.downloadText(cardService.cardToJsonText(cards[0]!.card), `${sanitizeFilename(cards[0]!.name)}.json`);
+    message.success(path ? `已导出：${path}` : '已导出 JSON');
     return;
   }
   const zip = new JSZip();
@@ -188,8 +189,8 @@ async function exportSelected(kind: 'json' | 'png') {
     }
   }
   const blob = await zip.generateAsync({ type: 'blob' });
-  backupService.downloadBlob(blob, backupService.timestampName('cards', 'zip'));
-  message.success(`已导出 ${cards.length} 张卡（zip）`);
+  const path = await backupService.downloadBlob(blob, backupService.timestampName('cards', 'zip'));
+  message.success(`已导出 ${cards.length} 张卡（zip）${path ? `，保存到 ${path}` : ''}`);
 }
 
 async function trash(id: string) {

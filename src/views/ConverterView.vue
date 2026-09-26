@@ -42,6 +42,7 @@ async function convertPngToJson() {
   report.value = [];
   const zip = new JSZip();
   let okCount = 0;
+  let savedPath: string | null = null;
   try {
     for (const f of files) {
       try {
@@ -52,7 +53,7 @@ async function convertPngToJson() {
         lastJsonPreview.value = json.slice(0, 2000);
         const out = `${sanitizeFilename(f.name.replace(/\.png$/i, ''))}.json`;
         if (files.length === 1) {
-          downloadText(json, out);
+          savedPath = await downloadText(json, out);
         } else {
           zip.file(out, json);
         }
@@ -71,9 +72,9 @@ async function convertPngToJson() {
       }
     }
     if (files.length > 1 && okCount) {
-      downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
+      savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
     }
-    message.success(`转换完成 ${okCount}/${files.length}`);
+    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
   }
@@ -88,6 +89,7 @@ async function convertJsonToPng() {
   const basePng = basePngBytes.value;
   const zip = new JSZip();
   let okCount = 0;
+  let savedPath: string | null = null;
   try {
     for (const f of files) {
       try {
@@ -97,7 +99,7 @@ async function convertJsonToPng() {
         const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
         if (files.length === 1) {
           // 单文件直接下载 png（无论是否指定底图），避免产物困在永不落地的 zip 里
-          downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
+          savedPath = await downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
         } else {
           zip.file(out, png);
         }
@@ -108,9 +110,9 @@ async function convertJsonToPng() {
       }
     }
     if (files.length > 1 && okCount) {
-      downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
+      savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
     }
-    message.success(`转换完成 ${okCount}/${files.length}`);
+    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
   }

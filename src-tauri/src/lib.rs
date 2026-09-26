@@ -17,7 +17,11 @@ pub fn run() {
             commands::fonts::font_read,
             commands::fonts::font_delete,
             commands::llm::llm_post_stream,
-            commands::llm::llm_cancel_stream
+            commands::llm::llm_cancel_stream,
+            commands::export::export_dir,
+            commands::export::pick_export_dir,
+            commands::export::write_export,
+            commands::export::open_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -20,4 +20,6 @@ export const SETTING_KEYS = {
   uiTheme: 'ui_theme',
   /** 界面字体 id（空串 = 默认字体） */
   uiFont: 'ui_font',
+  /** 导出文件夹（桌面端；空串 = Rust 默认 exe 同级 data/exports/） */
+  exportDir: 'export_dir',
 } as const;

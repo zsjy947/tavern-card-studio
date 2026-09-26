@@ -3,9 +3,9 @@
 import { computed, ref } from 'vue';
 import {
   NSpace, NButton, NDataTable, NTag, NDrawer, NDrawerContent, NForm, NFormItem, NInput,
-  NDynamicTags, NSwitch, NInputNumber, NSelect, useMessage, NIcon, NPopconfirm, NTooltip, NText,
+  NDynamicTags, NSwitch, NInputNumber, NSelect, useMessage, NIcon, NPopconfirm, NTooltip, NText, NCollapse, NCollapseItem,
 } from 'naive-ui';
-import { AddOutline, TrashOutline, DownloadOutline, CloudUploadOutline, CopyOutline } from '@vicons/ionicons5';
+import { AddOutline, TrashOutline, DownloadOutline, CloudUploadOutline, CopyOutline, SparklesOutline, BookOutline } from '@vicons/ionicons5';
 import type { AnyCard, BookEntry } from '@/core/card';
 import {
   characterBookToWorldInfo, worldInfoToCharacterBook, newWorldInfoEntry, wiEntryToEmbedded,
@@ -16,6 +16,8 @@ import FieldAiButton from '@/components/FieldAiButton.vue';
 import { downloadText } from '@/services/backupService';
 import { pickJsonFiles } from '@/utils/file';
 import { h } from 'vue';
+import WbBatchPanel from './WbBatchPanel.vue';
+import WbNovelPanel from './WbNovelPanel.vue';
 
 const props = defineProps<{ card: AnyCard }>();
 const emit = defineEmits<{ (e: 'change'): void }>();
@@ -148,6 +150,29 @@ function patchEntry(patch: Partial<BookEntry>) {
 
 <template>
   <div>
+    <NCollapse style="margin-bottom: 12px" :default-expanded-names="[]">
+      <NCollapseItem name="batch">
+        <template #header>
+          <NSpace align="center" :size="6">
+            <NIcon size="15"><SparklesOutline /></NIcon>
+            <span style="font-weight: 600">AI 批量生成</span>
+            <NText depth="3" style="font-size: 12px; font-weight: 400">按世界观批量生成条目（分批防截断 · 评审后注入）</NText>
+          </NSpace>
+        </template>
+        <WbBatchPanel :card="card" @change="emit('change')" />
+      </NCollapseItem>
+      <NCollapseItem name="novel">
+        <template #header>
+          <NSpace align="center" :size="6">
+            <NIcon size="15"><BookOutline /></NIcon>
+            <span style="font-weight: 600">小说提取（5 类轨迹）</span>
+            <NText depth="3" style="font-size: 12px; font-weight: 400">角色/事件线/时间线/设定/物品 · 断点续跑</NText>
+          </NSpace>
+        </template>
+        <WbNovelPanel :card="card" @change="emit('change')" />
+      </NCollapseItem>
+    </NCollapse>
+
     <NSpace :size="8" style="margin-bottom: 10px" align="center">
       <NButton size="small" type="primary" @click="addEntry">
         <template #icon><NIcon><AddOutline /></NIcon></template>添加条目

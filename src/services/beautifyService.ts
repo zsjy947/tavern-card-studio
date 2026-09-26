@@ -174,6 +174,150 @@ export function insertStatusbar(card: AnyCard, payload: StatusbarPayload, opts: 
   return { card: next, inserted: { tag: insertedTag, regex: true, worldinfo: insertedWi } };
 }
 
+/* ---------------- AI 生成状态栏：应用产物（迭代五 E3） ---------------- */
+
+export interface AiStatusbarArtifacts {
+  regexes: RegexScript[];
+  entries: BookEntry[];
+  /** 需要确保开场白末尾的占位符（MVU 模式为 <StatusPlaceHolderImpl/>；纯文本模式无需占位符） */
+  placeholder?: string;
+}
+
+/**
+ * MVU 模式：状态栏 HTML 以 ```html 围栏作为 <StatusPlaceHolderImpl/> 的渲染正则（markdownOnly），
+ * 配套占位符不发送正则由 MVU 套装提供（若卡内没有 MVU 套装，由调用方先注入）。
+ */
+export function buildMvuStatusbarArtifacts(html: string): AiStatusbarArtifacts {
+  const fenced = `\`\`\`html\n${html}\n\`\`\``.replace(/\$/g, '$$$$').replace(/\r?\n/g, '\\n');
+  return {
+    regexes: [
+      {
+        id: `sb-ai-${Date.now().toString(36)}`,
+        scriptName: '[美化]状态栏渲染',
+        findRegex: '/<StatusPlaceHolderImpl\\s*\\/>/g',
+        replaceString: fenced,
+        trimStrings: [],
+        placement: [2],
+        disabled: false,
+        markdownOnly: true,
+        promptOnly: false,
+        runOnEdit: false,
+        substituteRegex: 0,
+        minDepth: null,
+        maxDepth: null,
+      },
+    ],
+    entries: [],
+    placeholder: '<StatusPlaceHolderImpl/>',
+  };
+}
+
+/**
+ * 纯文本模式（无 MVU 备选）：AI 每次回复末尾输出 <StatusData>字段:值</StatusData>，
+ * 渲染正则把该块替换为「HTML + 注入 window.__statusRawText 解析脚本」；
+ * 配套 promptOnly + minDepth=6 的「对AI隐藏状态数据」正则；
+ * 加一条蓝灯「状态数据输出指令」条目（position=4/depth=0/order=200 同 MVU 条目配置）。
+ */
+export function buildTextStatusbarArtifacts(html: string): AiStatusbarArtifacts {
+  const injected = html.replace(
+    /<\/body>/i,
+    '<script type="module">window.__statusRawText=`$1`;<\/script>\n</body>',
+  );
+  const fenced = `\`\`\`html\n${injected}\n\`\`\``.replace(/\$/g, '$$$$').replace(/\r?\n/g, '\\n');
+  return {
+    regexes: [
+      {
+        id: `sb-ai-text-${Date.now().toString(36)}`,
+        scriptName: '状态栏',
+        findRegex: '/<StatusData>([\\s\\S]*?)<\\/StatusData>/gm',
+        replaceString: fenced,
+        trimStrings: [],
+        placement: [2],
+        disabled: false,
+        markdownOnly: true,
+        promptOnly: false,
+        runOnEdit: false,
+        substituteRegex: 0,
+        minDepth: null,
+        maxDepth: null,
+      },
+      {
+        id: `sb-ai-text-hide-${Date.now().toString(36)}`,
+        scriptName: '对AI隐藏状态数据',
+        findRegex: '/<StatusData>[\\s\\S]*?<\\/StatusData>/gm',
+        replaceString: '',
+        trimStrings: [],
+        placement: [2],
+        disabled: false,
+        markdownOnly: false,
+        promptOnly: true,
+        runOnEdit: false,
+        substituteRegex: 0,
+        minDepth: 6,
+        maxDepth: null,
+      },
+    ],
+    entries: [
+      {
+        id: Date.now() % 100000,
+        keys: [],
+        secondary_keys: [],
+        comment: '状态数据输出指令',
+        content:
+          '状态数据输出规则:\n  - 每次回复结束后，必须在末尾追加 <StatusData> 块\n  - 格式为每行一个「字段名:值」，冒号后紧跟值\n  - <StatusData> 块不出现在正文中\n\n输出格式示例:\n  <StatusData>\n  位置:某个地方\n  状态:正常\n  </StatusData>',
+        constant: true,
+        selective: false,
+        insertion_order: 200,
+        enabled: true,
+        position: 'before_char',
+        use_regex: false,
+        extensions: { position: 4, depth: 0, prevent_recursion: true, exclude_recursion: true, probability: 100, useProbability: true },
+      },
+    ],
+  };
+}
+
+/** 把 AI 状态栏产物写进卡（幂等：按脚本名替换已有），返回新卡不改原卡 */
+export function applyAiStatusbarArtifacts(card: AnyCard, artifacts: AiStatusbarArtifacts): AnyCard {
+  const next = JSON.parse(JSON.stringify(card)) as AnyCard;
+  const data = next.data as Record<string, unknown>;
+  const ext = (data.extensions ?? {}) as { regex_scripts?: RegexScript[] };
+  const scripts = ext.regex_scripts ?? [];
+  for (const regex of artifacts.regexes) {
+    const idx = scripts.findIndex((s) => s.scriptName === regex.scriptName);
+    if (idx >= 0) scripts[idx] = regex;
+    else scripts.push(regex);
+  }
+  ext.regex_scripts = scripts;
+  data.extensions = ext;
+
+  if (artifacts.entries.length) {
+    const book = (data.character_book ?? { name: '', entries: [] }) as { name?: string; entries: BookEntry[] };
+    for (const entry of artifacts.entries) {
+      const idx = book.entries.findIndex((e) => e.comment === entry.comment);
+      if (idx >= 0) book.entries[idx] = entry;
+      else {
+        entry.id = book.entries.reduce((mx, e) => Math.max(mx, Number(e.id ?? -1)), -1) + 1;
+        book.entries.push(entry);
+      }
+    }
+    data.character_book = book;
+  }
+
+  const ph = artifacts.placeholder;
+  if (ph) {
+    if (typeof data.first_mes === 'string' && !data.first_mes.includes('StatusPlaceHolderImpl')) {
+      data.first_mes = `${data.first_mes}\n${ph}`;
+    }
+    if (Array.isArray(data.alternate_greetings)) {
+      data.alternate_greetings = (data.alternate_greetings as string[]).map((g) =>
+        g.includes('StatusPlaceHolderImpl') ? g : `${g}\n${ph}`,
+      );
+    }
+  }
+  return next;
+}
+
 /* ---------------- 嵌图（外链模式） ---------------- */
 
 export interface ImageLinkResult {

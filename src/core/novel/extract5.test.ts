@@ -61,7 +61,7 @@ function sampleExtraction(): NovelExtraction {
     ],
     settings: [
       { subtype: '功法', name: '破云剑', level: '玄阶', first_chapter: '第3章', effect: '斩出剑气' },
-      { subtype: '世界观常识', name: '等级体系', description: '练气→筑基' },
+      { subtype: '世界观常识', name: '等级体系', first_chapter: '', description: '练气→筑基' },
     ],
     item_trajectories: [
       { item_name: '青锋剑', owner: '沈舟', events: [{ chapter: '第2章', action: '获得', source: '赏赐' }, { chapter: '第8章', action: '消耗', destination: '折断' }] },

@@ -14,6 +14,8 @@ const props = defineProps<{
   /** 预览主题：模仿酒馆深/浅消息气泡；缺省跟随全局外观明暗 */
   theme?: 'dark' | 'light';
   height?: string;
+  /** 允许 iframe 内脚本执行（AI 状态栏 tab 切换/元素点选需要；默认关闭以最小化沙箱权限） */
+  allowScripts?: boolean;
 }>();
 
 const appearance = useAppearance();
@@ -56,7 +58,7 @@ watch(doc, () => {
         ref="frame"
         class="html-preview-frame"
         :style="{ height: height ?? '320px' }"
-        sandbox="allow-same-origin"
+        :sandbox="allowScripts ? 'allow-same-origin allow-scripts' : 'allow-same-origin'"
         :srcdoc="doc"
       />
     </div>

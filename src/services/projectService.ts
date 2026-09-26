@@ -33,6 +33,8 @@ async function persistNew(title: string, sourceName: string, chapters: Chapter[]
       templateId: null,
       cardTemplateFilled: null,
       extractedCard: null,
+      worldbookEntries: null,
+      worldbookMode: null,
       userPersona: '',
       greetings: [],
       logs: [{ at: now, stage: 'chapters', message: `切分出 ${chapters.length} 章` }],

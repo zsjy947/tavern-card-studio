@@ -23,6 +23,7 @@ import WorldbookTab from './editor/WorldbookTab.vue';
 import CharacterMembersTab from './editor/CharacterMembersTab.vue';
 import RegexTab from './editor/RegexTab.vue';
 import ScriptsTab from './editor/ScriptsTab.vue';
+import MvuTab from './editor/MvuTab.vue';
 import ExtensionsTab from './editor/ExtensionsTab.vue';
 
 const route = useRoute();
@@ -261,6 +262,9 @@ async function rollback(v: CardVersionRow) {
       </NTabPane>
       <NTabPane name="scripts" tab="脚本">
         <ScriptsTab :card="card" @change="markDirty" />
+      </NTabPane>
+      <NTabPane name="mvu" tab="变量">
+        <MvuTab :card="card" @change="markDirty" />
       </NTabPane>
       <NTabPane name="extensions" tab="扩展">
         <ExtensionsTab :card="card" @change="markDirty" />

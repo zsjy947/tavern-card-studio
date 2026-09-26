@@ -115,6 +115,19 @@ export const regexScriptSchema = z
 /* 酒馆助手脚本 / 快速回复                                              */
 /* ------------------------------------------------------------------ */
 
+/** 酒馆助手脚本按钮组（MVU 变量系统脚本挂 6 个操作按钮用） */
+export const tavernHelperButtonsSchema = z.object({
+  enabled: z.boolean().default(false),
+  buttons: z
+    .array(
+      z.object({
+        name: z.string(),
+        visible: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+});
+
 export const tavernHelperScriptSchema = z
   .object({
     id: z.string(),
@@ -126,8 +139,35 @@ export const tavernHelperScriptSchema = z
     // 脚本触发时机（TavernHelper 约定字符串）
     event: z.string().default(''),
     content: z.string().default(''),
+    // 脚本按钮组（酒馆助手「按钮」功能；缺省时 passthrough 保留社区卡自有形态）
+    button: tavernHelperButtonsSchema.optional(),
   })
   .passthrough();
+
+/* ------------------------------------------------------------------ */
+/* MVU 变量组（extensions.tcsMvuVarGroups，变量设计器持久化形态）        */
+/* ------------------------------------------------------------------ */
+
+export const mvuVarFieldSchema = z.object({
+  /** 点路径（如 `货币.石质天元`、`装备.头部`），生成时构建嵌套树 */
+  name: z.string(),
+  type: z.enum(['number', 'string', 'boolean', 'enum', 'record', 'array']),
+  defaultValue: z.string().default(''),
+  min: z.number().nullable().default(null),
+  max: z.number().nullable().default(null),
+  clamp: z.boolean().default(false),
+  /** enum 类型的可选值（逗号分隔） */
+  enumValues: z.string().default(''),
+  /** record 类型的子字段（`名字:string, 等级:number` 形态） */
+  recordFields: z.string().default(''),
+  /** 更新规则 check 的具体触发条件与幅度描述 */
+  description: z.string().default(''),
+});
+
+export const mvuVarGroupSchema = z.object({
+  name: z.string(),
+  fields: z.array(mvuVarFieldSchema).default([]),
+});
 
 export const quickReplySchema = z
   .object({
@@ -205,6 +245,10 @@ export const cardDataBaseSchema = z.object({
       // 真实社区卡 tavern_helper 存在数组形态（不同 TavernHelper 版本）： union 透传保留原数据
       tavern_helper: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional(),
       QuickReply: z.preprocess(fillMissingIds((i) => `qr_${i}`), z.array(quickReplySchema).optional()),
+      // MVU 变量设计器持久化（本项目 tcs 前缀；passthrough 本就兼容旧卡，此处为编辑器读写提供类型）
+      tcsMvuVarGroups: z.array(mvuVarGroupSchema).optional(),
+      // 世界书批量生成 / 小说提取的参考小说素材原文
+      tcsReferenceNovel: z.string().optional(),
     })
     .partial()
     .passthrough()
@@ -256,7 +300,10 @@ export type BookEntry = z.infer<typeof bookEntrySchema>;
 export type CharacterBook = z.infer<typeof characterBookSchema>;
 export type RegexScript = z.infer<typeof regexScriptSchema>;
 export type TavernHelperScript = z.infer<typeof tavernHelperScriptSchema>;
+export type TavernHelperButtons = z.infer<typeof tavernHelperButtonsSchema>;
 export type QuickReply = z.infer<typeof quickReplySchema>;
+export type MvuVarField = z.infer<typeof mvuVarFieldSchema>;
+export type MvuVarGroup = z.infer<typeof mvuVarGroupSchema>;
 export type DepthPrompt = z.infer<typeof depthPromptSchema>;
 export type CardData = z.infer<typeof cardDataBaseSchema>;
 export type CardDataV3 = z.infer<typeof cardDataV3Schema>;

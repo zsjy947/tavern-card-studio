@@ -4,8 +4,12 @@
  * - wizard:* —— 完整生成向导分步提示词
  * - diagnosis:card-doctor —— 卡医 LLM 诊断
  * - novel:* —— 同人工坊流水线（Novalcard 提示词体系移植）
+ * - novel:extract5-* —— 小说 5 类轨迹提取（core/novel/extract5）
+ * - worldbook:batch|regen —— 世界书 AI 批量生成（core/lorebook/generate）
+ * - mvu:varlist / beautify:statusbar-gen —— MVU 变量设计与 AI 状态栏（core/llm/htmlgen）
  */
 import type { TemplateRow } from '@/services/types';
+import { builtinExtract5PromptPayloads } from '@/core/novel/extract5';
 
 export interface PromptPayload {
   target: string;
@@ -183,6 +187,41 @@ export function builtinPromptTemplates(): TemplateRow[] {
     target: 'novel:persona',
     system: '你是人设作家。依据原著主角设定，写一段 {{user}} 人设（POV 第一人称视角描述、身份/性格/目标/口吻），200-400 字，供玩家复制到酒馆 Persona。直接输出正文。',
     userTemplate: '【主角分析】\n{ANALYSIS}',
+  });
+
+  /* ---------------- 小说 5 类轨迹提取（迭代五 C） ---------------- */
+  for (const p of builtinExtract5PromptPayloads()) {
+    push(`tpl-prompt-${p.target.replaceAll(':', '-')}`, p.name, `5 类轨迹提取：${p.name}`, {
+      target: p.target,
+      system: p.system,
+      userTemplate: p.userTemplate,
+    });
+  }
+
+  /* ---------------- 世界书批量生成（迭代五 B） ---------------- */
+  push('tpl-prompt-worldbook-batch', '世界书 · AI 批量生成', '按世界观批量生成条目（每批 30 条防截断）', {
+    target: 'worldbook:batch',
+    system: '你是世界书架构师，为 SillyTavern 角色卡批量生成世界书条目。始终输出合法 JSON 数组；条目名唯一、内容不重复；content 具体自洽；条目内容全中文；content 内引用一律用中文引号「」『』《》，禁止英文双引号。',
+    userTemplate: '【世界观】\n{WORLDVIEW}\n\n【类型与数量要求】\n{REQUIREMENT}\n\n【已生成条目名（勿重复）】\n{EXISTING}\n\n{REFERENCE}',
+  });
+  push('tpl-prompt-worldbook-regen', '世界书 · 单条重生成', '保持类型定位，重写单条内容', {
+    target: 'worldbook:regen',
+    system: '你是世界书条目作家。重写给定的世界书条目：保持条目的类型定位与触发关键词不变，只重写内容；具体自洽、拒绝空泛；全中文；引用一律用中文引号「」『』《》。输出 JSON 对象：{"comment":"…","keys":[],"content":"…"}',
+    userTemplate: '【原条目】\n{ENTRY}\n\n【世界观】\n{WORLDVIEW}{REFERENCE}',
+  });
+
+  /* ---------------- MVU 变量路径 AI 设计（迭代五 D/E） ---------------- */
+  push('tpl-prompt-mvu-varlist', 'MVU · AI 变量路径设计', '数据盘点→结构规划→路径设计，不套模板', {
+    target: 'mvu:varlist',
+    system: '你是角色卡变量系统设计师。按「数据盘点 → 结构规划 → 路径设计」三步思考，为状态栏设计 MVU 变量路径。不要套模板：校园卡不需要 HP/MP，修仙卡的境界和灵根比 HP 重要。只输出 JSON 数组 [{"group":"主角","field":"名称","type":"string","default":""}]。',
+    userTemplate: '【角色卡信息】\n{CONTEXT}\n\n【用户需求】\n{EXTRA}',
+  });
+
+  /* ---------------- AI 状态栏生成（迭代五 E） ---------------- */
+  push('tpl-prompt-beautify-statusbar-gen', '美化 · AI 状态栏 HTML', '按变量清单生成状态栏 HTML（参考模板+硬约束）', {
+    target: 'beautify:statusbar-gen',
+    system: '你是前端状态栏开发专家。严格按要求输出完整 HTML 代码，不要说明文字；<style>/<script> 内只用 /* 注释 */；禁 vh 单位与 absolute 定位；必须输出完整 </body></html> 结尾；tab 必须 class="tab-btn" + data-target 与内容 div id 配对。',
+    userTemplate: '【角色卡信息】\n{CONTEXT}\n\n【变量路径清单 — 必须使用且仅使用这些路径】\n{VARLIST}\n\n【设计要求】\n{REQUIREMENT}',
   });
 
   return rows;

@@ -17,10 +17,17 @@ const MIGRATE_TABLES = [
  * 并发安全：启动期多处同时 getStore() 只初始化一次驱动，
  * 避免两个 TauriSqlStore 并发 load/CREATE TABLE 打同一个 SQLite 导致瞬时失败。
  * SQLite 初始化最多重试 3 次（带退避），仍失败才降级 IndexedDB 并记录真实错误。
+ * 失败不缓存：initStore 意外 reject 时清空 storePromise 允许后续调用重试（技术债 D7）。
  */
 export async function getStore(): Promise<DataStore> {
   if (!storePromise) storePromise = initStore();
-  return storePromise;
+  const current = storePromise;
+  try {
+    return await current;
+  } catch (e) {
+    if (storePromise === current) storePromise = undefined;
+    throw e;
+  }
 }
 
 async function initStore(): Promise<DataStore> {

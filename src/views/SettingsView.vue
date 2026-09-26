@@ -8,7 +8,7 @@ import { DownloadOutline, CloudUploadOutline } from '@vicons/ionicons5';
 import { exportBackup, importBackup, downloadBlob, timestampName } from '@/services/backupService';
 import { getSetting, setSetting, SETTING_KEYS } from '@/services/appSettings';
 import { pickFiles, formatBytes } from '@/utils/file';
-import { getStore, consumeDegradedNotice } from '@/db';
+import { getStore } from '@/db';
 import { isTauri } from '@/db/tauri';
 import { getExportDir, setExportDir, pickExportDir, openExportDir } from '@/services/exportService';
 import { useWorkspace } from '@/stores/workspace';
@@ -28,11 +28,7 @@ const exportDir = ref('');
 const exportDirPicking = ref(false);
 
 onMounted(async () => {
-  // 桌面 SQLite 启动期降级过的话，这里一次性提示（附真实错误便于排查）
-  const degradedError = consumeDegradedNotice();
-  if (degradedError !== null) {
-    message.error(`桌面数据库初始化失败，本次已降级到浏览器存储（数据不完整）：${degradedError}。重启应用可重试；若反复出现请反馈此错误信息`);
-  }
+  // 降级提示已上移 LayoutView 全局通知（D3）；此处保留静态存储详情
   // 主动刷新已装字体列表：即使启动期读取失败，进设置页也会自愈
   appearance.refreshInstalled().catch((e) => console.error('字体列表刷新失败：', e));
   const store = await getStore();

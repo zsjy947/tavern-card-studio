@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   NLayout, NLayoutSider, NLayoutContent, NLayoutHeader,
   NMenu, NSpace, NTag, NText, NIcon, NBadge, NButton, NDropdown,
+  useNotification,
   type DropdownOption,
 } from 'naive-ui';
 import {
@@ -16,6 +17,7 @@ import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
 import { THEMES } from '@/core/theme';
 import { isTauri } from '@/db/tauri';
+import { consumeDegradedNotice } from '@/db';
 import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
 import CommandPalette from '@/components/CommandPalette.vue';
 
@@ -23,6 +25,7 @@ const route = useRoute();
 const router = useRouter();
 const ws = useWorkspace();
 const appearance = useAppearance();
+const notification = useNotification();
 const collapsed = ref(false);
 const paletteShow = ref(false);
 
@@ -96,6 +99,16 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown);
+  // D3（技术债）：桌面 SQLite 降级提示全局化——挂载即一次性全局通知，不再等用户进设置页
+  const degraded = consumeDegradedNotice();
+  if (degraded !== null) {
+    notification.error({
+      title: '数据库已降级为浏览器存储',
+      content: `桌面 SQLite 初始化失败：${degraded}。本次数据不完整（可用「导入」找回）；重启应用可重试，反复出现请反馈此错误信息。设置页可查看存储详情。`,
+      duration: 12000,
+      closable: true,
+    });
+  }
   // 启动即拉取卡与渠道：头部徽标（N 张卡 / AI 配置状态）不依赖用户先访问卡库或 AI 中心
   ws.refreshCards(true).catch((e) => console.error('卡列表启动加载失败：', e));
   ws.refreshChannels().catch((e) => console.error('渠道启动加载失败：', e));

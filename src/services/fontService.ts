@@ -52,14 +52,14 @@ export async function listInstalled(): Promise<InstalledFontMeta[]> {
   }
 }
 
-/** 桌面端校验字体落盘文件是否可读；浏览器模式恒真（blob 在库内） */
+/** 桌面端校验字体落盘文件是否存在（D4：轻量 try_exists+metadata，不再全量读文件验可读）；浏览器模式恒真（blob 在库内） */
 export async function verifyFontFile(meta: InstalledFontMeta): Promise<boolean> {
   if (!isTauri()) return true;
   if (!meta.fileName) return false;
   try {
     const dir = await fontDir();
-    await tauriInvoke()('font_read', { dir, name: meta.fileName });
-    return true;
+    const hit = (await tauriInvoke()('font_exists', { dir, name: meta.fileName })) as number | null;
+    return hit != null;
   } catch {
     return false;
   }

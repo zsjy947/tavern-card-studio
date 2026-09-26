@@ -73,6 +73,22 @@ pub async fn font_delete(dir: String, name: String) -> Result<(), String> {
     }
 }
 
+/// 轻量存在性检查（技术债 D4）：try_exists + 元数据大小，替代「为了验证可读性
+/// 而把几十 MB 字体整读进内存」的 font_read 全量读。返回 Some(字节数) = 存在。
+#[tauri::command]
+pub async fn font_exists(dir: String, name: String) -> Result<Option<u64>, String> {
+    let safe = safe_font_name(&name)?;
+    let path = Path::new(&dir).join(safe);
+    match tokio::fs::try_exists(&path).await {
+        Ok(false) => Ok(None),
+        Ok(true) => {
+            let len = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
+            Ok(Some(len))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::safe_font_name;
@@ -92,5 +108,24 @@ mod tests {
         assert!(safe_font_name("..").is_err());
         assert!(safe_font_name("a..b.ttf").is_err());
         assert!(safe_font_name(".hidden").is_ok()); // 点开头合法但无分隔，可接受
+    }
+
+    #[tokio::test]
+    async fn font_exists_reports_presence_and_size() {
+        let dir = std::env::temp_dir().join(format!("tcs_font_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test_font.ttf");
+        std::fs::write(&file, b"12345").unwrap();
+
+        let hit = super::font_exists(dir.to_string_lossy().into_owned(), "test_font.ttf".into()).await.unwrap();
+        assert_eq!(hit, Some(5));
+
+        let miss = super::font_exists(dir.to_string_lossy().into_owned(), "nope.ttf".into()).await.unwrap();
+        assert_eq!(miss, None);
+
+        let bad = super::font_exists(dir.to_string_lossy().into_owned(), "../escape.ttf".into()).await;
+        assert!(bad.is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

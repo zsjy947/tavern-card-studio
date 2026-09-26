@@ -248,7 +248,11 @@ export class LlmClient {
               gotFirstChunk
                 ? `流式空闲超时：${Math.round(idleMs / 1000)}s 未收到新数据，连接已中断`
                 : `首 token 超时：${Math.round(firstTokenMs / 1000)}s 内模型未开始输出（可检查模型是否可用）`,
-              // 已产出内容的空闲超时不可重试：重试会导致 onDelta 重放/重复计费
+              // ADR（技术债 D6，2026-09 结论）：已产出内容的空闲超时【不可重试】——
+              // chat() 层重试会重跑 chatOnce，onDelta 观察者会收到全部 delta 的二次重放
+              // （按 delta 累积正文的调用方内容翻倍），且用量重复计费。
+              // 若未来要放开重试，必须由调用方携带已累积的正文做 reset 语义（整体替换而非追加），
+              // 并跳过 onDelta 重放。维持现状：有产出即禁用自动重试，调用方自行决定续写策略。
               undefined, !gotFirstChunk,
             );
           }

@@ -15,6 +15,7 @@ pub fn run() {
             commands::fonts::font_dir,
             commands::fonts::font_write,
             commands::fonts::font_read,
+            commands::fonts::font_exists,
             commands::fonts::font_delete,
             commands::llm::llm_post_stream,
             commands::llm::llm_cancel_stream,

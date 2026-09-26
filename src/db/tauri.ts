@@ -53,12 +53,13 @@ export class TauriSqlStore implements DataStore {
 
   private async exec(query: string, params: unknown[]): Promise<SqlRow[]> {
     await this.ready;
-    return (await tauriInvoke()('plugin:sql|select', { db: this.db!, query, params })) as SqlRow[];
+    // 注意：插件命令的参数名是 values（不是 params），错名会被 invoke 层直接拒绝
+    return (await tauriInvoke()('plugin:sql|select', { db: this.db!, query, values: params })) as SqlRow[];
   }
 
   private async run(query: string, params: unknown[]): Promise<void> {
     await this.ready;
-    await tauriInvoke()('plugin:sql|execute', { db: this.db!, query, params });
+    await tauriInvoke()('plugin:sql|execute', { db: this.db!, query, values: params });
   }
 
   async get<T>(table: string, id: string): Promise<T | undefined> {

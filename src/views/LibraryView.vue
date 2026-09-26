@@ -12,8 +12,8 @@ import type { CardRow, CategoryRow } from '@/services/types';
 import * as cardService from '@/services/cardService';
 import * as categoryService from '@/services/categoryService';
 import * as backupService from '@/services/backupService';
-import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
-import { dataUrlToBytes } from '@/utils/image';
+import { pickJsonFiles, pickPngFiles, pickFiles, sanitizeFilename } from '@/utils/file';
+import { dataUrlToBytes, imageFileToCoverDataUrl } from '@/utils/image';
 import CardCover from '@/components/CardCover.vue';
 import JSZip from 'jszip';
 
@@ -106,17 +106,41 @@ function cardOps(c: CardRow) {
     { key: 'select', label: selected.value.has(c.id) ? '取消选择' : '选择' },
     ...(categories.value.length ? catOptions : []),
     { key: 'edit', label: '在编辑器中打开' },
+    { key: 'cover', label: c.cover ? '更换封面' : '设置封面（导出 PNG 的底图）' },
+    ...(c.cover ? [{ key: 'cover:remove', label: '移除封面' }] : []),
   ];
 }
 
 async function onCardOp(key: string, c: CardRow) {
   if (key === 'select') toggleSelect(c.id);
   else if (key === 'edit') router.push(`/editor/${c.id}`);
+  else if (key === 'cover') await setCover(c);
+  else if (key === 'cover:remove') await removeCover(c);
   else if (key.startsWith('cat:')) {
     await categoryService.assignCategory(c.id, key === 'cat:none' ? null : key.slice(4));
     await refresh();
     message.success('已归类');
   }
+}
+
+/** 卡库直设封面：选图压缩后写 CardRow.cover（导出 PNG 将用其作底图） */
+async function setCover(c: CardRow) {
+  const files = await pickFiles('image/png,image/jpeg,image/webp', false);
+  if (!files.length) return;
+  try {
+    const dataUrl = await imageFileToCoverDataUrl(files[0]!);
+    await cardService.updateCardPatch(c.id, { cover: dataUrl });
+    await refresh();
+    message.success(`「${c.name}」封面已设置（导出 PNG 时作为底图）`);
+  } catch (e) {
+    message.error(`封面设置失败：${(e as Error).message}`);
+  }
+}
+
+async function removeCover(c: CardRow) {
+  await cardService.updateCardPatch(c.id, { cover: null });
+  await refresh();
+  message.success(`「${c.name}」封面已移除，导出 PNG 将使用占位图`);
 }
 
 async function importCards() {
@@ -176,6 +200,12 @@ async function exportSelected(kind: 'json' | 'png') {
     const path = await backupService.downloadText(cardService.cardToJsonText(cards[0]!.card), `${sanitizeFilename(cards[0]!.name)}.json`);
     message.success(path ? `已导出：${path}` : '已导出 JSON');
     return;
+  }
+  if (kind === 'png') {
+    const noCover = cards.filter((c) => !dataUrlToBytes(c.cover)).map((c) => c.name);
+    if (noCover.length) {
+      message.warning(`这些卡没有封面，导出将使用占位底图：${noCover.slice(0, 5).join('、')}${noCover.length > 5 ? ' 等' : ''}（卡片操作菜单 → 设置封面）`);
+    }
   }
   const zip = new JSZip();
   for (const c of cards) {

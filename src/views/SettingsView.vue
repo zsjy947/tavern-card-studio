@@ -28,9 +28,10 @@ const exportDir = ref('');
 const exportDirPicking = ref(false);
 
 onMounted(async () => {
-  // 桌面 SQLite 启动期降级过的话，这里一次性提示
-  if (consumeDegradedNotice()) {
-    message.error('桌面数据库初始化失败，本次已降级到浏览器存储（数据不完整），重启应用可重试');
+  // 桌面 SQLite 启动期降级过的话，这里一次性提示（附真实错误便于排查）
+  const degradedError = consumeDegradedNotice();
+  if (degradedError !== null) {
+    message.error(`桌面数据库初始化失败，本次已降级到浏览器存储（数据不完整）：${degradedError}。重启应用可重试；若反复出现请反馈此错误信息`);
   }
   // 主动刷新已装字体列表：即使启动期读取失败，进设置页也会自愈
   appearance.refreshInstalled().catch((e) => console.error('字体列表刷新失败：', e));

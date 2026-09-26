@@ -4,12 +4,22 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use futures::channel::oneshot;
 use futures::future::{select, Either};
 use futures::StreamExt;
+use futures::FutureExt;
 use tauri::ipc::Channel;
+
+use crate::commands::net::shared_client;
+
+/// 攒批窗口（技术债 D2.1）：SSE 小块逐 chunk base64+JSON IPC 开销大（+33% 膨胀、
+/// 长文数千帧），按 ~16ms 时间窗合并原始字节后一起发。我们传的是上游原始字节流，
+/// 合并拼接无损，前端 ReadableStream 语义不变。大块超阈值立即冲刷避免额外延迟。
+const BATCH_WINDOW: Duration = Duration::from_millis(16);
+const BATCH_WATERMARK: usize = 64 * 1024;
 
 /// 进行中的流式会话：session_id → 取消信号发送端
 #[derive(Default)]
@@ -108,10 +118,7 @@ pub async fn llm_post_stream(
     let m = reqwest::Method::from_bytes(verb.as_bytes())
         .map_err(|_| format!("非法 HTTP 方法：{verb}"))?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = shared_client();
     let mut req = client.request(m.clone(), &url);
     // content-type 只在带请求体的方法上设置一次（避免与前端传入的头重复 append）
     if matches!(m, reqwest::Method::POST | reqwest::Method::PUT | reqwest::Method::PATCH) {
@@ -144,32 +151,80 @@ pub async fn llm_post_stream(
 
     let mut stream = Box::pin(resp.bytes_stream());
     let mut rx = rx;
+    // D2.1 攒批：窗口内的上游小块合并为一帧发送；窗口到点/大块/流结束时冲刷
+    let mut pending: Vec<u8> = Vec::with_capacity(16 * 1024);
+    let mut window_open = false;
+    let mut window_start = Instant::now();
+
+    type WaitFuture<'a> = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<Result<bytes::Bytes, reqwest::Error>>, tokio::time::error::Elapsed>> + Send + 'a>,
+    >;
+
+    fn flush(pending: &mut Vec<u8>, on_chunk: &Channel<StreamEvent>) -> Result<(), ()> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let frame = std::mem::take(pending);
+        on_chunk
+            .send(StreamEvent::Chunk {
+                bytes_b64: base64::engine::general_purpose::STANDARD.encode(&frame),
+            })
+            .map_err(|_| ())
+    }
+
     loop {
-        // Pin<Box<S>> 是 Unpin 的，StreamExt::next 直接可用
-        let next = stream.next();
-        match select(rx, next).await {
+        // 窗口开启时给上游等待加「剩余窗口」超时：到点冲刷，不让尾块滞留到下个事件
+        let wait: WaitFuture<'_> = if window_open {
+            let remain = BATCH_WINDOW.saturating_sub(window_start.elapsed());
+            Box::pin(tokio::time::timeout(remain, stream.next()))
+        } else {
+            // 窗口未开：等下一个上游事件即可（map 补上与 timeout 一致的 Ok 包裹）
+            Box::pin(stream.next().map(Ok))
+        };
+        match select(rx, wait).await {
             // 取消：断流（连接随之关闭）
             Either::Left((_, _)) => {
+                let _ = flush(&mut pending, &on_chunk);
                 let _ = on_chunk.send(StreamEvent::Done);
                 return Ok(());
             }
+            // Right 臂 = (wait 的输出, rx 原值)；item: Result<Option<上游项>, Elapsed>
             Either::Right((item, next_rx)) => {
                 rx = next_rx;
-                match item {
-                    Some(Ok(bytes)) => {
-                        let sent = on_chunk.send(StreamEvent::Chunk {
-                            bytes_b64: base64::engine::general_purpose::STANDARD.encode(&bytes),
-                        });
-                        // 通道关闭（webview 销毁）：停止拉取上游
-                        if sent.is_err() {
+                let upstream = match item {
+                    Ok(upstream) => upstream,
+                    // 16ms 窗口到点：冲刷已攒字节
+                    Err(_elapsed) => {
+                        window_open = false;
+                        if flush(&mut pending, &on_chunk).is_err() {
                             return Ok(());
+                        }
+                        continue;
+                    }
+                };
+                match upstream {
+                    Some(Ok(bytes)) => {
+                        if !window_open {
+                            window_open = true;
+                            window_start = Instant::now();
+                        }
+                        pending.extend_from_slice(&bytes);
+                        // 大块达水位立即冲刷，避免攒批引入额外延迟与内存占用
+                        if pending.len() >= BATCH_WATERMARK {
+                            window_open = false;
+                            if flush(&mut pending, &on_chunk).is_err() {
+                                // 通道关闭（webview 销毁）：停止拉取上游
+                                return Ok(());
+                            }
                         }
                     }
                     Some(Err(e)) => {
+                        let _ = flush(&mut pending, &on_chunk);
                         let _ = on_chunk.send(StreamEvent::Error { message: format!("读取失败：{e}") });
                         return Ok(());
                     }
                     None => {
+                        let _ = flush(&mut pending, &on_chunk);
                         let _ = on_chunk.send(StreamEvent::Done);
                         return Ok(());
                     }

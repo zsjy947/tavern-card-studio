@@ -45,7 +45,8 @@ export class TauriSqlStore implements DataStore {
         await invoke('plugin:sql|execute', {
           db: this.db,
           query: `CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY, json TEXT NOT NULL)`,
-          params: [],
+          // 插件命令参数名是 values（与 exec/run 同因，见下）
+          values: [],
         });
       }
     })();

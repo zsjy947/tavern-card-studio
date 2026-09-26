@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 设置与备份：全量备份导出/导入 zip、数据概览、关于 */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   NSpace, NButton, NCard, NTag, NText, useMessage, NIcon, NPopconfirm, NInput, NSwitch, NFormItem,
 } from 'naive-ui';
@@ -11,6 +11,7 @@ import { pickFiles, formatBytes } from '@/utils/file';
 import { getStore } from '@/db';
 import { isTauri } from '@/db/tauri';
 import { getExportDir, setExportDir, pickExportDir, openExportDir } from '@/services/exportService';
+import { renderExportFilename } from '@/core/card/exportName';
 import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
 import AppearanceSettings from '@/components/AppearanceSettings.vue';
@@ -26,6 +27,13 @@ const dualWrite = ref(true);
 const isDesktop = isTauri();
 const exportDir = ref('');
 const exportDirPicking = ref(false);
+/* 导出文件名模板（P1-2） */
+const exportTemplate = ref('');
+const templatePreview = computed(() => renderExportFilename(exportTemplate.value, { name: '角色名', spec: 'v3', version: '1.0' }));
+
+async function persistExportTemplate(v: string) {
+  await setSetting(SETTING_KEYS.exportFilenameTemplate, v);
+}
 
 onMounted(async () => {
   // 降级提示已上移 LayoutView 全局通知（D3）；此处保留静态存储详情
@@ -40,6 +48,7 @@ onMounted(async () => {
   // 偏好项从库加载（持久化，跨会话生效）
   userName.value = await getSetting(SETTING_KEYS.uiUserName, 'User');
   dualWrite.value = await getSetting(SETTING_KEYS.pngDualWrite, true);
+  exportTemplate.value = await getSetting<string>(SETTING_KEYS.exportFilenameTemplate, '');
   if (isDesktop) {
     getExportDir().then((d) => (exportDir.value = d)).catch((e) => console.error('导出目录读取失败：', e));
   }
@@ -151,6 +160,14 @@ async function doImport(wipe: boolean) {
             <NButton size="tiny" secondary :loading="exportDirPicking" @click="chooseExportDir">选择文件夹…</NButton>
             <NButton size="tiny" quaternary @click="openExportDir().catch((e) => message.error((e as Error).message))">打开文件夹</NButton>
             <NButton size="tiny" quaternary @click="resetExportDir">恢复默认</NButton>
+          </NSpace>
+        </NFormItem>
+        <NFormItem label="导出文件名模板（占位符 {name}/{spec}/{version}/{date}）" label-placement="left">
+          <NSpace :size="8" align="center" style="width: 100%">
+            <NInput v-model:value="exportTemplate" style="width: 240px" placeholder="{name}_{date}" @update:value="persistExportTemplate" />
+            <NText depth="3" style="font-size: 12px">
+              示例：<NText code>{{ templatePreview }}</NText>
+            </NText>
           </NSpace>
         </NFormItem>
         <NFormItem label="默认 {{user}} 名（预览用）" label-placement="left">

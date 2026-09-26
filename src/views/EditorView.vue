@@ -158,7 +158,7 @@ async function save() {
 }
 
 const totalTokens = computed(() => {
-  if (!card.value) return 0;
+  if (!card.value) return { total: 0, estimated: true };
   const d = card.value.data as Record<string, unknown>;
   const parts = [
     'description', 'personality', 'scenario', 'first_mes', 'mes_example',
@@ -166,7 +166,11 @@ const totalTokens = computed(() => {
   ].map((k) => String(d[k] ?? ''));
   for (const g of ((d.alternate_greetings as string[] | undefined) ?? [])) parts.push(g);
   for (const e of (((d.character_book as { entries?: { content?: string }[] } | undefined)?.entries) ?? [])) parts.push(e.content ?? '');
-  return parts.reduce((acc, t) => acc + countTokens(t).total, 0);
+  const stats = parts.reduce((acc, t) => {
+    const s = countTokens(t);
+    return { total: acc.total + s.total, estimated: acc.estimated || Boolean(s.estimated) };
+  }, { total: 0, estimated: false });
+  return stats;
 });
 
 const specLabel = computed(() => (card.value ? { v1: 'V1', v2: 'V2', v3: 'V3' }[cardSpec(card.value)] : ''));
@@ -219,7 +223,7 @@ async function rollback(v: CardVersionRow) {
         </div>
         <span class="editor-title">{{ card.data.name || '未命名' }}</span>
         <NTag size="small" round :bordered="false" type="info">{{ specLabel }}</NTag>
-        <NTag size="small" round :bordered="false">{{ totalTokens }} tk（全文）</NTag>
+        <NTag size="small" round :bordered="false">{{ totalTokens.estimated ? '~' : '' }}{{ totalTokens.total }} tk（全文）</NTag>
         <NTag v-if="dirty" size="small" round type="warning" :bordered="false">未保存</NTag>
       </NSpace>
       <NSpace align="center" :size="8">

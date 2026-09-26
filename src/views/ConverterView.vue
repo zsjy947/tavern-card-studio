@@ -1,16 +1,18 @@
 <script setup lang="ts">
-/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告 */
-import { ref } from 'vue';
+/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告、最近转换记录（P1-4） */
+import { onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText,
+  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty,
 } from 'naive-ui';
-import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline } from '@vicons/ionicons5';
+import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline, DownloadOutline } from '@vicons/ionicons5';
 import * as cardService from '@/services/cardService';
 import { parseLooseCard } from '@/core/card';
 import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/core/png';
 import { runStaticChecks } from '@/core/diag/staticChecks';
 import { downloadText, downloadBlob, timestampName } from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
+import { listRecentConversions, recordConversion, reDownloadConversion } from '@/services/converterService';
+import { formatBytes, type RecentConversion } from '@/core/converter/recent';
 import JSZip from 'jszip';
 
 const message = useMessage();
@@ -19,9 +21,23 @@ const dualWrite = ref(true);
 const report = ref<{ name: string; ok: boolean; detail: string }[]>([]);
 const busy = ref(false);
 const lastJsonPreview = ref('');
+const recent = ref<RecentConversion[]>([]);
 // 底图显式选择：不再在选完 JSON 后隐藏式串行弹第二个对话框
 const basePngName = ref('');
 const basePngBytes = ref<Uint8Array | null>(null);
+
+onMounted(async () => {
+  recent.value = await listRecentConversions().catch(() => []);
+});
+
+async function reDownload(entry: RecentConversion) {
+  try {
+    const path = await reDownloadConversion(entry);
+    message.success(path ? `已重新保存：${path}` : `已重新下载 ${entry.outputName}`);
+  } catch (e) {
+    message.warning((e as Error).message);
+  }
+}
 
 async function chooseBasePng() {
   const files = await pickPngFiles();
@@ -57,6 +73,16 @@ async function convertPngToJson() {
         } else {
           zip.file(out, json);
         }
+        await recordConversion({
+          direction: 'png2json',
+          fileName: f.name,
+          cardName: String(card.data.name ?? ''),
+          spec: card.spec,
+          outputName: out,
+          bytes: new TextEncoder().encode(json),
+          mime: 'application/json',
+          savedPath,
+        }).catch(() => undefined);
         const issues = runStaticChecks(card);
         const errors = issues.filter((i) => i.severity === 'error').length;
         // 明细直接进报告，避免只报「N 个错误」却看不到错在哪
@@ -74,6 +100,7 @@ async function convertPngToJson() {
     if (files.length > 1 && okCount) {
       savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
     }
+    recent.value = await listRecentConversions().catch(() => recent.value);
     message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
@@ -103,6 +130,16 @@ async function convertJsonToPng() {
         } else {
           zip.file(out, png);
         }
+        await recordConversion({
+          direction: 'json2png',
+          fileName: f.name,
+          cardName: String(card.data.name ?? ''),
+          spec: card.spec,
+          outputName: out,
+          bytes: png,
+          mime: 'image/png',
+          savedPath,
+        }).catch(() => undefined);
         report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? `（底图：${basePngName.value}）` : '（占位底图）'}` });
         okCount++;
       } catch (e) {
@@ -112,6 +149,7 @@ async function convertJsonToPng() {
     if (files.length > 1 && okCount) {
       savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
     }
+    recent.value = await listRecentConversions().catch(() => recent.value);
     message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
@@ -183,6 +221,30 @@ function run() {
       <NCollapse v-if="lastJsonPreview">
         <NCollapseItem title="最后一次转换结果预览" name="preview">
           <NInput type="textarea" :value="lastJsonPreview" :rows="10" readonly />
+        </NCollapseItem>
+      </NCollapse>
+
+      <NCollapse v-if="recent.length" style="margin-top: 4px">
+        <NCollapseItem :title="`最近转换（${recent.length}，上限 50）`" name="recent">
+          <NList bordered size="small">
+            <NListItem v-for="r in recent.slice(0, 20)" :key="r.id">
+              <NSpace :size="8" align="center" style="width: 100%">
+                <NTag size="small" :bordered="false" :type="r.direction === 'png2json' ? 'info' : 'success'">
+                  {{ r.direction === 'png2json' ? 'PNG→JSON' : 'JSON→PNG' }}
+                </NTag>
+                <b style="font-size: 13px">{{ r.cardName || r.fileName }}</b>
+                <NText depth="3" style="font-size: 12px">{{ formatBytes(r.sizeBytes) }} · {{ new Date(r.savedAt).toLocaleString() }}</NText>
+                <NTooltip :disabled="r.sizeBytes <= 2 * 1024 * 1024">
+                  <template #trigger>
+                    <NButton size="tiny" secondary :disabled="r.sizeBytes > 2 * 1024 * 1024" @click="reDownload(r)">
+                      <template #icon><NIcon><DownloadOutline /></NIcon></template>重新下载
+                    </NButton>
+                  </template>
+                  产物 >2MB 未保留，请重新转换
+                </NTooltip>
+              </NSpace>
+            </NListItem>
+          </NList>
         </NCollapseItem>
       </NCollapse>
 

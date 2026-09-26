@@ -14,6 +14,10 @@ import * as categoryService from '@/services/categoryService';
 import * as backupService from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, pickFiles, sanitizeFilename } from '@/utils/file';
 import { dataUrlToBytes, imageFileToCoverDataUrl } from '@/utils/image';
+import { renderExportFilename } from '@/core/card/exportName';
+import { getSetting, SETTING_KEYS } from '@/services/appSettings';
+import { DEFAULT_IMPORT_OPTIONS, splitCardAssets, type ImportSplitOptions } from '@/core/card/importOptions';
+import ImportOptionsModal from '@/components/ImportOptionsModal.vue';
 import CardCover from '@/components/CardCover.vue';
 import JSZip from 'jszip';
 
@@ -143,19 +147,52 @@ async function removeCover(c: CardRow) {
   message.success(`「${c.name}」封面已移除，导出 PNG 将使用占位图`);
 }
 
+/** 导入选项（P1-5）：默认不拆分，行为与旧版一致 */
+const importOptions = ref<ImportSplitOptions>({ ...DEFAULT_IMPORT_OPTIONS });
+const showImportOptions = ref(false);
+/** 记住最近一次的候选文件：选项确认后直接开导，避免二次弹文件框 */
+let pendingImportFiles: File[] | null = null;
+
 async function importCards() {
   const files = await pickPngFiles(true).then((f) => (f.length ? f : pickJsonFiles(true)));
   if (!files.length) return;
+  pendingImportFiles = files;
+  showImportOptions.value = true;
+}
+
+/** 用户在选项对话框点了「开始导入」 */
+async function runPendingImport() {
+  const files = pendingImportFiles;
+  pendingImportFiles = null;
+  if (!files?.length) return;
+  await runImport(files);
+}
+
+async function runImport(files: File[]) {
   importing.value = true;
   let ok = 0;
   const errors: string[] = [];
   for (const f of files) {
     try {
       const bytes = new Uint8Array(await f.arrayBuffer());
+      let result: cardService.ImportResult;
       if (f.name.toLowerCase().endsWith('.json')) {
-        await cardService.importCardFromJson(new TextDecoder().decode(bytes));
+        result = await cardService.importCardFromJson(new TextDecoder().decode(bytes));
       } else {
-        await cardService.importCardFromPng(bytes);
+        result = await cardService.importCardFromPng(bytes);
+      }
+      // 拆分模式：世界书/正则导出为独立 JSON（落到导出目录），并从卡内移除
+      if (importOptions.value.worldbookMode === 'export' || importOptions.value.regexMode === 'export') {
+        const split = splitCardAssets(result.row.card, importOptions.value);
+        if (split.worldbookJson) {
+          await backupService.downloadText(split.worldbookJson, `${sanitizeFilename(split.worldbookName || '世界书')}.worldbook.json`);
+        }
+        if (split.regexJson) {
+          await backupService.downloadText(split.regexJson, `${sanitizeFilename(split.worldbookName || result.row.name)}.regexlib.json`);
+        }
+        if (split.worldbookJson || split.regexJson) {
+          await cardService.saveCard(result.row.id, split.card, { note: '导入（拆分世界书/正则）', keepCover: true });
+        }
       }
       ok++;
     } catch (e) {
@@ -190,6 +227,17 @@ function compareSelected() {
   router.push({ path: '/compare', query: { a: ids[0], b: ids[1] } });
 }
 
+/** 按设置页模板渲染导出文件名（P1-2；扩展名由调用方拼） */
+async function exportFileName(c: CardRow): Promise<string> {
+  const tpl = await getSetting<string>(SETTING_KEYS.exportFilenameTemplate, '');
+  const d = c.card.data as Record<string, unknown>;
+  return renderExportFilename(tpl, {
+    name: c.name,
+    spec: c.spec === 'chara_card_v3' ? 'v3' : c.spec === 'chara_card_v2' ? 'v2' : 'v1',
+    version: String(d.character_version ?? ''),
+  });
+}
+
 async function exportSelected(kind: 'json' | 'png') {
   const cards = ws.cards.filter((c) => selected.value.has(c.id));
   if (!cards.length) {
@@ -197,8 +245,16 @@ async function exportSelected(kind: 'json' | 'png') {
     return;
   }
   if (cards.length === 1 && kind === 'json') {
-    const path = await backupService.downloadText(cardService.cardToJsonText(cards[0]!.card), `${sanitizeFilename(cards[0]!.name)}.json`);
+    const path = await backupService.downloadText(cardService.cardToJsonText(cards[0]!.card), `${await exportFileName(cards[0]!)}.json`);
     message.success(path ? `已导出：${path}` : '已导出 JSON');
+    return;
+  }
+  if (kind === 'png' && cards.length === 1) {
+    const c = cards[0]!;
+    const basePng = dataUrlToBytes(c.cover);
+    const bytes = await cardService.cardToPngBytes(c.card, basePng);
+    const path = await backupService.downloadBlob(new Blob([bytes as BlobPart], { type: 'image/png' }), `${await exportFileName(c)}.png`);
+    message.success(path ? `已导出：${path}` : '已导出 PNG');
     return;
   }
   if (kind === 'png') {
@@ -210,12 +266,12 @@ async function exportSelected(kind: 'json' | 'png') {
   const zip = new JSZip();
   for (const c of cards) {
     if (kind === 'json') {
-      zip.file(`${sanitizeFilename(c.name)}.json`, cardService.cardToJsonText(c.card));
+      zip.file(`${await exportFileName(c)}.json`, cardService.cardToJsonText(c.card));
     } else {
       // 有封面则用封面作底图（还原原导入图/自设封面），无封面用占位图
       const basePng = dataUrlToBytes(c.cover);
       const bytes = await cardService.cardToPngBytes(c.card, basePng);
-      zip.file(`${sanitizeFilename(c.name)}.png`, bytes);
+      zip.file(`${await exportFileName(c)}.png`, bytes);
     }
   }
   const blob = await zip.generateAsync({ type: 'blob' });
@@ -304,7 +360,7 @@ async function restore(c: CardRow) {
                   <NTag v-if="c.categoryId && categories.find(x => x.id === c.categoryId)" size="small" round :bordered="false" type="warning">
                     {{ categories.find(x => x.id === c.categoryId)!.name }}
                   </NTag>
-                  <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.total }} tk</span>
+                  <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.estimated ? '~' : '' }}{{ c.tokenStats.total }} tk</span>
                   <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
                 </div>
                 <div class="lib-card-tags">
@@ -335,6 +391,8 @@ async function restore(c: CardRow) {
         </div>
       </NSpin>
     </div>
+
+    <ImportOptionsModal v-model:show="showImportOptions" v-model:options="importOptions" @confirm="runPendingImport" />
   </div>
 </template>
 

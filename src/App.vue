@@ -1,18 +1,24 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import {
   NConfigProvider, NMessageProvider, NDialogProvider, NNotificationProvider,
-  zhCN, dateZhCN,
+  zhCN, dateZhCN, enUS, dateEnUS,
 } from 'naive-ui';
 import { useAppearance } from '@/stores/appearance';
+import { i18n } from '@/i18n';
 
 const appearance = useAppearance();
 // initSync 立即上色（localStorage 快路径），init 异步校准设置库并注册字体
 appearance.init();
+
+// naive-ui locale 跟随界面语言（i18n 骨架）
+const naiveLocale = computed(() => (i18n.global.locale.value === 'en-US' ? enUS : zhCN));
+const naiveDateLocale = computed(() => (i18n.global.locale.value === 'en-US' ? dateEnUS : dateZhCN));
 </script>
 
 <template>
   <NConfigProvider :theme="appearance.naiveTheme" :theme-overrides="appearance.themeOverrides"
-    :locale="zhCN" :date-locale="dateZhCN" style="height: 100%">
+    :locale="naiveLocale" :date-locale="naiveDateLocale" style="height: 100%">
     <NMessageProvider placement="top-right">
       <NDialogProvider>
         <NNotificationProvider placement="bottom-right">

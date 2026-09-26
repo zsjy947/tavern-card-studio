@@ -7,12 +7,15 @@
  */
 import { ref, computed } from 'vue';
 import { NButton, NButtonGroup, NPopselect, NIcon, useMessage } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { SparklesOutline, ColorWandOutline, LanguageOutline } from '@vicons/ionicons5';
 import type { AnyCard } from '@/core/card';
 import { runFieldAi } from '@/services/aiService';
 import { findPrompt as lookupPrompt } from '@/services/promptLookup';
 import type { TemplateRow } from '@/services/types';
 import type { PromptPayload } from '@/builtins/promptTemplates';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   field: string;
@@ -121,16 +124,16 @@ const langOptions = ['English', '简体中文', '繁體中文', '日本語', '�
     <NButtonGroup size="tiny">
       <NButton size="tiny" secondary :loading="busy === 'generate'" :disabled="!!busy" @click="run('generate')">
         <template #icon><NIcon><SparklesOutline /></NIcon></template>
-        AI 生成
+        {{ t('common.aiGenerate') }}
       </NButton>
       <NButton size="tiny" secondary :loading="busy === 'optimize'" :disabled="!!busy || !modelValue" @click="run('optimize')">
         <template #icon><NIcon><ColorWandOutline /></NIcon></template>
-        优化
+        {{ t('common.optimize') }}
       </NButton>
       <NPopselect v-model:value="targetLang" :options="langOptions.map((l) => ({ label: l, value: l }))" trigger="click" @update:value="run('translate')">
         <NButton size="tiny" secondary :loading="busy === 'translate'" :disabled="!!busy || !modelValue">
           <template #icon><NIcon><LanguageOutline /></NIcon></template>
-          翻译
+          {{ t('common.translate') }}
         </NButton>
       </NPopselect>
     </NButtonGroup>

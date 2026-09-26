@@ -1,0 +1,45 @@
+{
+  "app": {
+    "mode": { "desktop": "Desktop", "browser": "Browser" },
+    "noAi": "No AI configured"
+  },
+  "nav": {
+    "library": "Library",
+    "wizard": "Wizard",
+    "converter": "Converter",
+    "beautify": "Beautify",
+    "templates": "Templates",
+    "ai": "AI Center",
+    "diagnosis": "Diagnosis",
+    "novel": "Novel Workshop",
+    "stats": "Stats",
+    "settings": "Settings",
+    "guide": "Guide"
+  },
+  "common": {
+    "aiGenerate": "AI Generate",
+    "optimize": "Optimize",
+    "translate": "Translate",
+    "tokens": "tk",
+    "chars": "chars",
+    "tokensEstimated": "~",
+    "cancel": "Cancel",
+    "confirm": "OK",
+    "save": "Save",
+    "close": "Close"
+  },
+  "command": {
+    "open": "Open · {name}",
+    "groupNav": "Navigation",
+    "groupOps": "Actions",
+    "groupTheme": "Appearance",
+    "newCard": "New character card",
+    "compare": "Open · Compare cards",
+    "switchTheme": "Switch theme · {name}",
+    "appearance": "Appearance & fonts…"
+  },
+  "settings": {
+    "language": "Language",
+    "languageAuto": "Initialized from system language (defaults to Chinese)"
+  }
+}

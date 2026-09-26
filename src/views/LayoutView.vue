@@ -18,6 +18,7 @@ import { useAppearance } from '@/stores/appearance';
 import { THEMES } from '@/core/theme';
 import { isTauri } from '@/db/tauri';
 import { consumeDegradedNotice } from '@/db';
+import { useI18n } from 'vue-i18n';
 import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
 import { registerShortcut, unregisterShortcut, installShortcutLayer } from '@/composables/useShortcuts';
 import CommandPalette from '@/components/CommandPalette.vue';
@@ -26,6 +27,7 @@ const route = useRoute();
 const router = useRouter();
 const ws = useWorkspace();
 const appearance = useAppearance();
+const { t } = useI18n();
 const notification = useNotification();
 const collapsed = ref(false);
 const paletteShow = ref(false);
@@ -35,17 +37,17 @@ function icon(C: typeof AlbumsOutline) {
 }
 
 const menuOptions = computed(() => [
-  { label: '卡库', key: '/library', icon: icon(AlbumsOutline) },
-  { label: '生成向导', key: '/wizard', icon: icon(SparklesOutline) },
-  { label: '转换工具', key: '/converter', icon: icon(SwapHorizontalOutline) },
-  { label: '美化工作台', key: '/beautify', icon: icon(ColorPaletteOutline) },
-  { label: '模板中心', key: '/templates', icon: icon(LayersOutline) },
-  { label: 'AI 中心', key: '/ai', icon: icon(CloudOutline) },
-  { label: '诊断与调整', key: '/diagnosis', icon: icon(MedicalOutline) },
-  { label: '同人卡工坊', key: '/novel', icon: icon(BookOutline) },
-  { label: '统计看板', key: '/stats', icon: icon(StatsChartOutline) },
-  { label: '设置与备份', key: '/settings', icon: icon(SettingsOutline) },
-  { label: '使用指南', key: '/guide', icon: icon(SchoolOutline) },
+  { label: t('nav.library'), key: '/library', icon: icon(AlbumsOutline) },
+  { label: t('nav.wizard'), key: '/wizard', icon: icon(SparklesOutline) },
+  { label: t('nav.converter'), key: '/converter', icon: icon(SwapHorizontalOutline) },
+  { label: t('nav.beautify'), key: '/beautify', icon: icon(ColorPaletteOutline) },
+  { label: t('nav.templates'), key: '/templates', icon: icon(LayersOutline) },
+  { label: t('nav.ai'), key: '/ai', icon: icon(CloudOutline) },
+  { label: t('nav.diagnosis'), key: '/diagnosis', icon: icon(MedicalOutline) },
+  { label: t('nav.novel'), key: '/novel', icon: icon(BookOutline) },
+  { label: t('nav.stats'), key: '/stats', icon: icon(StatsChartOutline) },
+  { label: t('nav.settings'), key: '/settings', icon: icon(SettingsOutline) },
+  { label: t('nav.guide'), key: '/guide', icon: icon(SchoolOutline) },
 ]);
 
 const activeKey = computed(() => `/${(route.path.split('/')[1] ?? 'library')}`);
@@ -54,7 +56,9 @@ function onMenu(key: string) {
   router.push(key);
 }
 
-const runtimeTag = isTauri() ? { text: '桌面模式', type: 'success' as const } : { text: '浏览器模式', type: 'default' as const };
+const runtimeTag = computed(() => (isTauri()
+  ? { text: t('app.mode.desktop'), type: 'success' as const }
+  : { text: t('app.mode.browser'), type: 'default' as const }));
 const hasTextChannel = computed(() => ws.activeChannel('text'));
 
 /* ---------------- 主题快捷切换（头部下拉 + 命令面板） ---------------- */
@@ -76,7 +80,7 @@ const themeOptions = computed<DropdownOption[]>(() => [
   { type: 'divider', key: 'theme-divider' },
   {
     key: 'appearance-settings',
-    label: '外观与字体设置…',
+    label: t('command.appearance'),
     icon: () => h(NIcon, null, { default: () => h(OptionsOutline) }),
   },
 ] as DropdownOption[]);
@@ -122,22 +126,22 @@ onMounted(async () => {
   ws.refreshChannels().catch((e) => console.error('渠道启动加载失败：', e));
   // 页面导航命令
   for (const opt of menuOptions.value) {
-    registerCommand({ id: `nav:${opt.key}`, title: `打开 · ${opt.label}`, group: '导航', keywords: opt.label, run: () => { void router.push(opt.key); } })
+    registerCommand({ id: `nav:${opt.key}`, title: t('command.open', { name: opt.label }), group: t('command.groupNav'), keywords: opt.label, run: () => { void router.push(opt.key); } })
   }
-  registerCommand({ id: 'nav:/compare', title: '打开 · 两卡对比', group: '导航', keywords: '对比 compare diff', run: () => { void router.push('/compare'); } });
-  registerCommand({ id: 'palette:new-card', title: '新建角色卡', group: '操作', keywords: '新建 卡片 create', run: async () => {
+  registerCommand({ id: 'nav:/compare', title: t('command.compare'), group: t('command.groupNav'), keywords: '对比 compare diff', run: () => { void router.push('/compare'); } });
+  registerCommand({ id: 'palette:new-card', title: t('command.newCard'), group: t('command.groupOps'), keywords: '新建 卡片 create', run: async () => {
     const { createCard } = await import('@/services/cardService');
     const row = await createCard('新角色');
     await ws.refreshCards(true);
     router.push(`/editor/${row.id}`);
   } });
-  for (const t of THEMES) {
+  for (const th of THEMES) {
     registerCommand({
-      id: `theme:${t.id}`,
-      title: `切换主题 · ${t.label}`,
-      group: '外观',
-      keywords: `主题 theme ${t.label} ${t.mode === 'dark' ? '深色' : '浅色'}`,
-      run: () => { void appearance.setTheme(t.id); },
+      id: `theme:${th.id}`,
+      title: t('command.switchTheme', { name: th.label }),
+      group: t('command.groupTheme'),
+      keywords: `主题 theme ${th.label} ${th.mode === 'dark' ? '深色' : '浅色'}`,
+      run: () => { void appearance.setTheme(th.id); },
     });
   }
 });
@@ -149,7 +153,7 @@ onBeforeUnmount(() => {
   for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
   unregisterCommand('nav:/compare');
   unregisterCommand('palette:new-card');
-  for (const t of THEMES) unregisterCommand(`theme:${t.id}`);
+  for (const th of THEMES) unregisterCommand(`theme:${th.id}`);
 });
 </script>
 

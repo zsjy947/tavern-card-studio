@@ -13,6 +13,7 @@ import { isTauri } from '@/db/tauri';
 import { getExportDir, setExportDir, pickExportDir, openExportDir } from '@/services/exportService';
 import { renderExportFilename } from '@/core/card/exportName';
 import { listShortcuts, shortcutVersion } from '@/composables/useShortcuts';
+import { i18n, switchLanguage, UI_LANGUAGES } from '@/i18n';
 import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
 import AppearanceSettings from '@/components/AppearanceSettings.vue';
@@ -40,6 +41,13 @@ async function persistExportTemplate(v: string) {
 const shortcuts = computed(() => {
   void shortcutVersion.value;
   return listShortcuts();
+});
+
+/* 界面语言（i18n 骨架，通用层先行） */
+const uiLanguage = ref<'zh-CN' | 'en-US'>('zh-CN');
+const languageOptions = UI_LANGUAGES;
+onMounted(() => {
+  uiLanguage.value = (i18n.global.locale.value as 'zh-CN' | 'en-US') ?? 'zh-CN';
 });
 
 onMounted(async () => {
@@ -161,6 +169,12 @@ async function doImport(wipe: boolean) {
       </NCard>
 
       <NCard size="small" title="偏好">
+        <NFormItem label="界面语言 / Language（通用层先行，视图渐进迁移）" label-placement="left">
+          <NSelect
+            :value="uiLanguage" :options="languageOptions" style="width: 200px" size="small"
+            @update:value="(v: string) => switchLanguage(v as 'zh-CN' | 'en-US')"
+          />
+        </NFormItem>
         <NFormItem v-if="isDesktop" label="导出文件夹（卡/备份/模板/世界书导出的保存位置）" label-placement="left">
           <NSpace :size="8" align="center" style="width: 100%">
             <NText code style="font-size: 12px; word-break: break-all">{{ exportDir || '读取中…' }}</NText>

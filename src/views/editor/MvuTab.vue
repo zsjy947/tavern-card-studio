@@ -95,6 +95,17 @@ const issues = computed(() => mvuCheckIssues(groups.value, zodCode.value));
 
 const varPaths = computed(() => varGroupsToPaths(groups.value));
 
+/* ---------------- 三方路径校验（迭代六 E2） ---------------- */
+
+import { checkPathDrift } from '@/core/llm/htmlgen';
+
+/** 状态栏 HTML 实际读取路径 vs 变量组定义的双向漂移 */
+const drift = computed(() => {
+  const exts = (data.value.extensions ?? {}) as { regex_scripts?: { replaceString?: string }[] };
+  const html = (exts.regex_scripts ?? []).map((s) => s.replaceString ?? '').join('\n');
+  return checkPathDrift(groups.value, html);
+});
+
 /* ---------------- 注入 / 清空 ---------------- */
 
 const existing = computed(() => detectExistingMvu(props.card));
@@ -246,6 +257,19 @@ const presetOptions = Object.entries(MVU_PRESETS).map(([k, v]) => ({ label: v.la
         </NTabPane>
         <NTabPane name="paths" tab="变量路径（{{ varPaths.length }}）">
           <pre class="mvu-pre">{{ varPaths.join('\n') || '（无）' }}</pre>
+        </NTabPane>
+        <NTabPane name="drift" tab="三方路径校验">
+          <NAlert v-if="!drift.onlyInGroups.length && !drift.onlyInHtml.length" type="success" :show-icon="false" style="font-size: 12px">
+            校验通过：变量组定义与状态栏 HTML 读取路径零漂移（或卡内尚无状态栏）。
+          </NAlert>
+          <template v-else>
+            <NAlert v-if="drift.onlyInGroups.length" type="warning" :bordered="false" style="font-size: 12px" title="定义了但状态栏未使用（漂移）">
+              <div v-for="p in drift.onlyInGroups" :key="p">· {{ p }}</div>
+            </NAlert>
+            <NAlert v-if="drift.onlyInHtml.length" type="error" :bordered="false" style="font-size: 12px" title="状态栏读取了未定义的路径">
+              <div v-for="p in drift.onlyInHtml" :key="p">· {{ p }}（AI 首次更新会以 insert 初始化，或补充到变量组）</div>
+            </NAlert>
+          </template>
         </NTabPane>
       </NTabs>
 

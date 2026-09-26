@@ -70,8 +70,11 @@ function membersBrief(list: WizardMember[]): string {
     .join('\n');
 }
 
-/** 为指定成员（缺省为空缺者）批量生成世界书条目 */
-async function genMemberEntries(targets?: WizardMember[]) {
+/**
+ * 为指定成员（缺省为空缺者）批量生成世界书条目。
+ * busyKey 区分入口：顶部一键 = 'members'，单行 = `member:${index}`，互不转圈（仍全局互斥）。
+ */
+async function genMemberEntries(targets?: WizardMember[], busyKey = 'members') {
   const list = targets ?? members.value.filter((m) => m.name.trim() && !m.content.trim());
   if (!list.length) {
     message.info(targets ? '没有需要生成的成员' : '所有成员都已有条目内容');
@@ -90,7 +93,7 @@ async function genMemberEntries(targets?: WizardMember[]) {
     message.error('缺少「向导 · 角色成员条目」内置提示词');
     return;
   }
-  busy.value = 'members';
+  busy.value = busyKey;
   try {
     const entries = await runFieldAiJson<MemberBookEntry[]>({
       feature: '向导:角色成员条目',
@@ -438,7 +441,7 @@ async function finish() {
                   <NRadioButton value="support">配角（触发）</NRadioButton>
                 </NRadioGroup>
                 <NInput v-model:value="m.aliases" size="small" placeholder="触发称呼，逗号分隔（如：小婉, 婉儿）" style="flex: 1; min-width: 200px" />
-                <NButton size="tiny" secondary :loading="busy === 'members'" :disabled="!m.name.trim()" @click="genMemberEntries([m])">生成此条</NButton>
+                <NButton size="tiny" secondary :loading="busy === `member:${i}`" @click="genMemberEntries([m], `member:${i}`)">生成此条</NButton>
                 <NButton size="tiny" quaternary type="error" @click="removeMember(i)">移除</NButton>
               </NSpace>
               <NInput v-model:value="m.content" type="textarea" :rows="4"

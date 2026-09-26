@@ -131,6 +131,23 @@ export async function listCards(includeDeleted = false): Promise<CardRow[]> {
   return filtered.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+/** 虚拟滚动启用阈值（ROADMAP P3-4）：超过该张数列表走分页+行虚拟化 */
+export const VIRTUAL_SCROLL_THRESHOLD = 500;
+
+/**
+ * 分页读卡（keyset 游标，只作用于展示路径；导入/去重仍全量）。
+ * 返回按 updatedAt 降序的一页与 nextCursor（null=到底）。
+ */
+export async function listCardsPaged(
+  opts: { cursor?: string; limit?: number; includeDeleted?: boolean } = {},
+): Promise<{ rows: CardRow[]; nextCursor: string | null }> {
+  const store = await getStore();
+  const limit = opts.limit ?? 100;
+  const result = await store.listPage<CardRow>('cards', { cursor: opts.cursor, limit });
+  const rows = result.rows.filter((c) => (opts.includeDeleted ? true : !c.deletedAt)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return { rows, nextCursor: result.nextCursor };
+}
+
 export async function getCard(id: string): Promise<CardRow | undefined> {
   return (await getStore()).get<CardRow>('cards', id);
 }

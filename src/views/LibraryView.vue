@@ -72,6 +72,24 @@ const filtered = computed(() => {
   return list;
 });
 
+/* ---------------- 大规模卡库：行虚拟化（P3-4，>500 张启用；浏览器模式同样可用） ---------------- */
+
+import { useVirtualList, useWindowSize } from '@vueuse/core';
+
+const virtualEnabled = computed(() => filtered.value.length > cardService.VIRTUAL_SCROLL_THRESHOLD);
+const viewport = useWindowSize();
+/** 列数按视口宽估算（与 .lib-row 的 repeat(var(--cols), minmax(0,1fr)) 对应） */
+const cols = computed(() => Math.max(1, Math.min(4, Math.floor((viewport.width.value - 380) / 336))));
+/** 卡片行高估算（固定行虚拟化的前提；overscan 吸收误差） */
+const CARD_ROW_HEIGHT = 186;
+
+const cardRows = computed(() => {
+  const out: CardRow[][] = [];
+  for (let i = 0; i < filtered.value.length; i += cols.value) out.push(filtered.value.slice(i, i + cols.value));
+  return out;
+});
+const { list: virtualRows, containerProps, wrapperProps } = useVirtualList(cardRows, { itemHeight: CARD_ROW_HEIGHT, overscan: 6 });
+
 async function refresh() {
   await ws.refreshCards(true);
   categories.value = await categoryService.listCategories();
@@ -404,44 +422,92 @@ async function restore(c: CardRow) {
 
       <NSpin :show="ws.cardsLoading">
         <NEmpty v-if="!filtered.length" description="没有卡片，导入或新建一张开始" style="padding: 60px 0" />
-        <div v-else class="lib-grid">
-          <div v-for="(c, ci) in filtered" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
-            <!-- 单击选中、双击进只读预览（P2-1）；编辑入口保留在按钮/菜单 -->
-            <div class="lib-card-main" @click.stop="toggleSelect(c.id)" @dblclick="router.push(`/preview/${c.id}`)">
-              <CardCover :src="c.cover" :name="c.name" :size="56" />
-              <div class="lib-card-info">
-                <div class="lib-card-name">{{ c.name }}</div>
-                <div class="lib-card-meta">
-                  <NTag size="small" :bordered="false">{{ c.spec === 'chara_card_v3' ? 'V3' : c.spec === 'chara_card_v2' ? 'V2' : 'V1' }}</NTag>
-                  <NTag v-if="c.categoryId && categories.find(x => x.id === c.categoryId)" size="small" round :bordered="false" type="warning">
-                    {{ categories.find(x => x.id === c.categoryId)!.name }}
-                  </NTag>
-                  <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.estimated ? '~' : '' }}{{ c.tokenStats.total }} tk</span>
-                  <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
+        <!-- 行分块渲染（两种模式同一套卡片标记）：>500 张时行虚拟化，否则普通滚动 -->
+        <div v-else-if="virtualEnabled" v-bind="containerProps" class="lib-virtual">
+          <div v-bind="wrapperProps">
+            <div v-for="row in virtualRows" :key="`vr-${row.index}`" class="lib-row" :style="{ '--cols': cols }">
+              <div v-for="c in row.data" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
+                <!-- 单击选中、双击进只读预览（P2-1）；编辑入口保留在按钮/菜单 -->
+                <div class="lib-card-main" @click.stop="toggleSelect(c.id)" @dblclick="router.push(`/preview/${c.id}`)">
+                  <CardCover :src="c.cover" :name="c.name" :size="56" />
+                  <div class="lib-card-info">
+                    <div class="lib-card-name">{{ c.name }}</div>
+                    <div class="lib-card-meta">
+                      <NTag size="small" :bordered="false">{{ c.spec === 'chara_card_v3' ? 'V3' : c.spec === 'chara_card_v2' ? 'V2' : 'V1' }}</NTag>
+                      <NTag v-if="c.categoryId && categories.find(x => x.id === c.categoryId)" size="small" round :bordered="false" type="warning">
+                        {{ categories.find(x => x.id === c.categoryId)!.name }}
+                      </NTag>
+                      <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.estimated ? '~' : '' }}{{ c.tokenStats.total }} tk</span>
+                      <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
+                    </div>
+                    <div class="lib-card-tags">
+                      <NTag v-for="t in c.tags.slice(0, 4)" :key="t" size="small" round :bordered="false" type="info">{{ t }}</NTag>
+                      <NTag v-if="c.tags.length > 4" size="small" round :bordered="false">+{{ c.tags.length - 4 }}</NTag>
+                    </div>
+                  </div>
                 </div>
-                <div class="lib-card-tags">
-                  <NTag v-for="t in c.tags.slice(0, 4)" :key="t" size="small" round :bordered="false" type="info">{{ t }}</NTag>
-                  <NTag v-if="c.tags.length > 4" size="small" round :bordered="false">+{{ c.tags.length - 4 }}</NTag>
+                <div class="lib-card-ops">
+                  <NDropdown :options="cardOps(c)" @select="(key: string) => onCardOp(key, c)">
+                    <NButton text size="tiny">操作 ▾</NButton>
+                  </NDropdown>
+                  <template v-if="!showTrash">
+                    <NPopconfirm @positive-click="trash(c.id)">
+                      <template #trigger><NButton text size="tiny" type="error">删除</NButton></template>
+                      移入回收站？
+                    </NPopconfirm>
+                  </template>
+                  <template v-else>
+                    <NButton text size="tiny" type="success" @click.stop="restore(c)">恢复</NButton>
+                    <NPopconfirm @positive-click="hardDelete(c)">
+                      <template #trigger><NButton text size="tiny" type="error">彻底删除</NButton></template>
+                      不可恢复，确认？
+                    </NPopconfirm>
+                  </template>
                 </div>
               </div>
             </div>
-            <div class="lib-card-ops">
-              <NDropdown :options="cardOps(c)" @select="(key: string) => onCardOp(key, c)">
-                <NButton text size="tiny">操作 ▾</NButton>
-              </NDropdown>
-              <template v-if="!showTrash">
-                <NPopconfirm @positive-click="trash(c.id)">
-                  <template #trigger><NButton text size="tiny" type="error">删除</NButton></template>
-                  移入回收站？
-                </NPopconfirm>
-              </template>
-              <template v-else>
-                <NButton text size="tiny" type="success" @click.stop="restore(c)">恢复</NButton>
-                <NPopconfirm @positive-click="hardDelete(c)">
-                  <template #trigger><NButton text size="tiny" type="error">彻底删除</NButton></template>
-                  不可恢复，确认？
-                </NPopconfirm>
-              </template>
+          </div>
+        </div>
+        <div v-else class="lib-grid">
+          <div v-for="row in cardRows" :key="`r-${cardRows.indexOf(row)}`" class="lib-row" :style="{ '--cols': cols }">
+            <div v-for="c in row" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
+              <!-- 单击选中、双击进只读预览（P2-1）；编辑入口保留在按钮/菜单 -->
+              <div class="lib-card-main" @click.stop="toggleSelect(c.id)" @dblclick="router.push(`/preview/${c.id}`)">
+                <CardCover :src="c.cover" :name="c.name" :size="56" />
+                <div class="lib-card-info">
+                  <div class="lib-card-name">{{ c.name }}</div>
+                  <div class="lib-card-meta">
+                    <NTag size="small" :bordered="false">{{ c.spec === 'chara_card_v3' ? 'V3' : c.spec === 'chara_card_v2' ? 'V2' : 'V1' }}</NTag>
+                    <NTag v-if="c.categoryId && categories.find(x => x.id === c.categoryId)" size="small" round :bordered="false" type="warning">
+                      {{ categories.find(x => x.id === c.categoryId)!.name }}
+                    </NTag>
+                    <span v-if="c.tokenStats" class="lib-card-tk">{{ c.tokenStats.estimated ? '~' : '' }}{{ c.tokenStats.total }} tk</span>
+                    <span class="lib-card-date">{{ new Date(c.updatedAt).toLocaleDateString() }}</span>
+                  </div>
+                  <div class="lib-card-tags">
+                    <NTag v-for="t in c.tags.slice(0, 4)" :key="t" size="small" round :bordered="false" type="info">{{ t }}</NTag>
+                    <NTag v-if="c.tags.length > 4" size="small" round :bordered="false">+{{ c.tags.length - 4 }}</NTag>
+                  </div>
+                </div>
+              </div>
+              <div class="lib-card-ops">
+                <NDropdown :options="cardOps(c)" @select="(key: string) => onCardOp(key, c)">
+                  <NButton text size="tiny">操作 ▾</NButton>
+                </NDropdown>
+                <template v-if="!showTrash">
+                  <NPopconfirm @positive-click="trash(c.id)">
+                    <template #trigger><NButton text size="tiny" type="error">删除</NButton></template>
+                    移入回收站？
+                  </NPopconfirm>
+                </template>
+                <template v-else>
+                  <NButton text size="tiny" type="success" @click.stop="restore(c)">恢复</NButton>
+                  <NPopconfirm @positive-click="hardDelete(c)">
+                    <template #trigger><NButton text size="tiny" type="error">彻底删除</NButton></template>
+                    不可恢复，确认？
+                  </NPopconfirm>
+                </template>
+              </div>
             </div>
           </div>
         </div>
@@ -460,7 +526,8 @@ async function restore(c: CardRow) {
 }
 .lib-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .lib-main { flex: 1; min-width: 0; }
-.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.lib-virtual { max-height: calc(100vh - 200px); overflow: auto; }
+.lib-row { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .lib-card {
   background: var(--tcs-fill-soft, rgba(255, 255, 255, 0.028));
   border: 1px solid var(--tcs-border, rgba(255, 255, 255, 0.07));

@@ -1,5 +1,5 @@
 /** IndexedDB 驱动（浏览器模式兜底） */
-import type { DataStore } from './store';
+import { DEFAULT_PAGE_LIMIT, type DataStore } from './store';
 
 const DB_NAME = 'tavern-card-studio';
 // v2：新增 fonts / font_blobs（已装字体元信息与字节）
@@ -44,6 +44,32 @@ export class IndexedDbStore implements DataStore {
   async list<T>(table: string): Promise<T[]> {
     const rows = (await this.tx<{ id: string; value: T }[]>(table, 'readonly', (s) => s.getAll() as IDBRequest<{ id: string; value: T }[]>)) ?? [];
     return rows.map((r) => r.value);
+  }
+
+  /** IDBCursor keyset 分页（id 升序） */
+  async listPage<T>(table: string, opts: { cursor?: string; limit?: number } = {}): Promise<{ rows: T[]; nextCursor: string | null }> {
+    const limit = opts.limit ?? DEFAULT_PAGE_LIMIT;
+    const db = await this.db;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(table, 'readonly');
+      const store = tx.objectStore(table);
+      const range = opts.cursor ? IDBKeyRange.lowerBound(opts.cursor, true) : undefined;
+      const rows: T[] = [];
+      let lastId: string | null = null;
+      const req = store.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor || rows.length >= limit) {
+          resolve({ rows, nextCursor: cursor ? lastId : null });
+          return;
+        }
+        const row = cursor.value as { id: string; value: T };
+        rows.push(row.value);
+        lastId = row.id;
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
   }
 
   async put<T>(table: string, id: string, value: T): Promise<void> {

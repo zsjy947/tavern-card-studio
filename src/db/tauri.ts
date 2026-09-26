@@ -3,7 +3,7 @@
  * 与自定义 db_url 命令（便携优先：exe 同级 ./data/studio.db，失败回退 AppData）。
  */
 
-import type { DataStore } from './store';
+import { DEFAULT_PAGE_LIMIT, type DataStore } from './store';
 
 export interface TauriInvoke {
   (cmd: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -71,6 +71,20 @@ export class TauriSqlStore implements DataStore {
   async list<T>(table: string): Promise<T[]> {
     const rows = await this.exec(`SELECT json FROM ${table}`, []);
     return rows.map((r) => JSON.parse(String(r.json)) as T);
+  }
+
+  /** keyset 分页（id 升序，WHERE id > ? ORDER BY id LIMIT ? 下推 SQLite） */
+  async listPage<T>(table: string, opts: { cursor?: string; limit?: number } = {}): Promise<{ rows: T[]; nextCursor: string | null }> {
+    const limit = opts.limit ?? DEFAULT_PAGE_LIMIT;
+    const rows = opts.cursor
+      ? await this.exec(`SELECT id, json FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`, [opts.cursor, limit + 1])
+      : await this.exec(`SELECT id, json FROM ${table} ORDER BY id LIMIT $1`, [limit + 1]);
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      rows: page.map((r) => JSON.parse(String(r.json)) as T),
+      nextCursor: hasMore ? String(page[page.length - 1]!.id) : null,
+    };
   }
 
   async put<T>(table: string, id: string, value: T): Promise<void> {

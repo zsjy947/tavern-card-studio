@@ -1,5 +1,5 @@
 /** 内存驱动（测试用） */
-import type { DataStore } from './store';
+import { DEFAULT_PAGE_LIMIT, type DataStore } from './store';
 
 export class MemoryStore implements DataStore {
   readonly kind = 'memory' as const;
@@ -20,6 +20,15 @@ export class MemoryStore implements DataStore {
 
   async list<T>(table: string): Promise<T[]> {
     return [...this.table(table).values()] as T[];
+  }
+
+  async listPage<T>(table: string, opts: { cursor?: string; limit?: number } = {}): Promise<{ rows: T[]; nextCursor: string | null }> {
+    const limit = opts.limit ?? DEFAULT_PAGE_LIMIT;
+    const ids = [...this.table(table).keys()].sort();
+    const start = opts.cursor ? ids.findIndex((id) => id > opts.cursor!) : 0;
+    const slice = start < 0 ? [] : ids.slice(start, start + limit + 1);
+    const rows = slice.slice(0, limit).map((id) => this.table(table).get(id) as T);
+    return { rows, nextCursor: slice.length > limit ? slice[limit - 1]! : null };
   }
 
   async put<T>(table: string, id: string, value: T): Promise<void> {

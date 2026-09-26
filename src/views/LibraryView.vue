@@ -13,6 +13,7 @@ import * as cardService from '@/services/cardService';
 import * as categoryService from '@/services/categoryService';
 import * as backupService from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
+import { dataUrlToBytes } from '@/utils/image';
 import CardCover from '@/components/CardCover.vue';
 import JSZip from 'jszip';
 
@@ -180,7 +181,9 @@ async function exportSelected(kind: 'json' | 'png') {
     if (kind === 'json') {
       zip.file(`${sanitizeFilename(c.name)}.json`, cardService.cardToJsonText(c.card));
     } else {
-      const bytes = await cardService.cardToPngBytes(c.card);
+      // 有封面则用封面作底图（还原原导入图/自设封面），无封面用占位图
+      const basePng = dataUrlToBytes(c.cover);
+      const bytes = await cardService.cardToPngBytes(c.card, basePng);
       zip.file(`${sanitizeFilename(c.name)}.png`, bytes);
     }
   }

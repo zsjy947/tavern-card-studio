@@ -14,6 +14,9 @@ import { useWorkspace } from '@/stores/workspace';
 import type { CardVersionRow } from '@/services/types';
 import { countTokens } from '@/core/stats/tokens';
 import { useCardHistory } from '@/composables/useCardHistory';
+import { pickFiles } from '@/utils/file';
+import { imageFileToCoverDataUrl } from '@/utils/image';
+import CardCover from '@/components/CardCover.vue';
 import BasicTab from './editor/BasicTab.vue';
 import GreetingsTab from './editor/GreetingsTab.vue';
 import WorldbookTab from './editor/WorldbookTab.vue';
@@ -34,6 +37,42 @@ const saving = ref(false);
 const showVersions = ref(false);
 const versions = ref<CardVersionRow[]>([]);
 const versionNote = ref('');
+
+/* ---------------- 封面（CardRow.cover，不属卡 JSON，独立于 dirty/save 流程） ---------------- */
+
+const cover = ref<string | null>(null);
+const coverBusy = ref(false);
+
+async function changeCover() {
+  const files = await pickFiles('image/png,image/jpeg,image/webp', false);
+  if (!files.length) return;
+  coverBusy.value = true;
+  try {
+    const dataUrl = await imageFileToCoverDataUrl(files[0]!);
+    await cardService.updateCardPatch(id.value, { cover: dataUrl });
+    cover.value = dataUrl;
+    await ws.refreshCards(true);
+    message.success('封面已更新（导出 PNG 时将作为底图）');
+  } catch (e) {
+    message.error(`封面设置失败：${(e as Error).message}`);
+  } finally {
+    coverBusy.value = false;
+  }
+}
+
+async function removeCover() {
+  coverBusy.value = true;
+  try {
+    await cardService.updateCardPatch(id.value, { cover: null });
+    cover.value = null;
+    await ws.refreshCards(true);
+    message.success('封面已移除，导出 PNG 将使用占位图');
+  } catch (e) {
+    message.error(`封面移除失败：${(e as Error).message}`);
+  } finally {
+    coverBusy.value = false;
+  }
+}
 
 /* ---------------- 本地撤销/重做（优化文档 P0-2） ---------------- */
 
@@ -73,6 +112,7 @@ async function loadCard() {
     return;
   }
   card.value = JSON.parse(JSON.stringify(row.card)) as AnyCard;
+  cover.value = row.cover ?? null;
   dirty.value = false;
   history.reset(card.value);
   history.bindHotkeys(window, applyRestored);
@@ -168,6 +208,14 @@ async function rollback(v: CardVersionRow) {
         <NButton size="small" quaternary @click="router.push('/library')">
           <template #icon><NIcon><ArrowBackOutline /></NIcon></template>
         </NButton>
+        <!-- 封面：点击即选图更换；悬停提示操作 -->
+        <div class="cover-wrap" :title="cover ? '点击更换封面' : '点击设置封面'">
+          <button class="cover-btn" :disabled="coverBusy" @click="changeCover">
+            <CardCover :src="cover" :name="card.data.name || '?'" :size="44" />
+          </button>
+          <NButton v-if="cover" size="tiny" quaternary type="error" class="cover-remove" :disabled="coverBusy"
+            title="移除封面（导出 PNG 将用占位图）" @click="removeCover">×</NButton>
+        </div>
         <span class="editor-title">{{ card.data.name || '未命名' }}</span>
         <NTag size="small" round :bordered="false" type="info">{{ specLabel }}</NTag>
         <NTag size="small" round :bordered="false">{{ totalTokens }} tk（全文）</NTag>
@@ -249,6 +297,19 @@ async function rollback(v: CardVersionRow) {
 .editor-root { max-width: 1080px; margin: 0 auto; }
 .editor-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .editor-title { font-size: 16px; font-weight: 800; }
+.cover-wrap { position: relative; display: inline-flex; }
+.cover-btn {
+  padding: 0; border: 1px solid var(--tcs-border, rgba(255,255,255,.12)); border-radius: 10px;
+  background: transparent; cursor: pointer; overflow: hidden; line-height: 0;
+  transition: border-color .15s;
+}
+.cover-btn:hover { border-color: var(--tcs-accent, #8b5cf6); }
+.cover-btn:disabled { opacity: .6; cursor: wait; }
+.cover-remove {
+  position: absolute; top: -6px; right: -6px; z-index: 1;
+  height: 18px; width: 18px; padding: 0; font-size: 14px; line-height: 18px;
+  background: var(--tcs-surface, #1a1a22); border: 1px solid var(--tcs-border, rgba(255,255,255,.15));
+}
 .version-diff { max-height: 260px; overflow: auto; border-top: 1px dashed var(--tcs-border, rgba(255,255,255,.1)); padding-top: 8px; }
 .version-diff-row { font-size: 12px; margin-bottom: 6px; line-height: 1.5; }
 .diff-before { color: var(--tcs-bad, #f87171); }

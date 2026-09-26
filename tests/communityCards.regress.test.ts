@@ -21,6 +21,8 @@ function isCharacterEntry(e: { content?: string; constant?: boolean; keys?: stri
 }
 
 describe.skipIf(!hasSamples)('真实社区卡导入回归（discord类脑 13 卡）', () => {
+  // describe 回调在收集期就会执行：样本缺失时这里必须直接返回，不能 readdirSync 崩掉
+  if (!hasSamples) return;
   const files = readdirSync(SAMPLE_DIR).filter((f) => /\.(png|json)$/i.test(f));
   const pngs = files.filter((f) => f.endsWith('.png'));
   const jsons = files.filter((f) => f.endsWith('.json'));

@@ -96,6 +96,9 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown);
+  // 启动即拉取卡与渠道：头部徽标（N 张卡 / AI 配置状态）不依赖用户先访问卡库或 AI 中心
+  ws.refreshCards(true).catch((e) => console.error('卡列表启动加载失败：', e));
+  ws.refreshChannels().catch((e) => console.error('渠道启动加载失败：', e));
   // 页面导航命令
   for (const opt of menuOptions.value) {
     registerCommand({ id: `nav:${opt.key}`, title: `打开 · ${opt.label}`, group: '导航', keywords: opt.label, run: () => { void router.push(opt.key); } })

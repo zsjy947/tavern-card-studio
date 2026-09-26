@@ -9,9 +9,11 @@ import * as projectService from '@/services/projectService';
 import { listTemplates, findPrompt } from '@/services/promptLookup';
 import type { NovelProjectRow } from '@/services/types';
 import { PIPELINE_STAGE_LABELS } from '@/services/types';
-import { blankCard } from '@/core/card';
+import { blankCard, type AnyCard } from '@/core/card';
 import * as cardService from '@/services/cardService';
 import { runFieldAi, runFieldAiJson } from '@/services/aiService';
+import { initExtractState, extractOne } from '@/services/novelExtractService';
+import { extractionToWorldEntries, type ExtractConfig } from '@/core/novel/extract5';
 import { useWorkspace } from '@/stores/workspace';
 
 const message = useMessage();
@@ -173,11 +175,11 @@ async function stageAnalysis() {
 
 interface ExtractedBookEntry { comment: string; keys: string[]; content: string; constant?: boolean; insertion_order?: number }
 
+/** 步骤 3：抽取成卡（只出基础卡，不含世界书——与世界书步拆开，可独立重跑） */
 async function stageExtract() {
   if (!active.value) return;
   const prompt = await findPrompt('novel:extract');
-  const wbPrompt = await findPrompt('novel:worldbook');
-  if (!prompt || !wbPrompt) return;
+  if (!prompt) return;
   busy.value = 'extract';
   try {
     const schema = `{"name":"角色名","description":"角色描述(markdown)","personality":"","scenario":"","first_mes":"","tags":[]}`;
@@ -193,32 +195,103 @@ async function stageExtract() {
     Object.assign(card.data as Record<string, unknown>, cardJson);
     (card.data as Record<string, unknown>).creator_notes = `由同人卡工坊从《${active.value.title}》生成`;
 
-    const entries = await runFieldAiJson<ExtractedBookEntry[]>({
-      feature: '工坊:世界书六类',
-      systemPrompt: wbPrompt.system,
-      userPrompt: wbPrompt.userTemplate
-        .replaceAll('{ANALYSIS}', active.value.pipelineState.analysis.slice(0, 20_000))
-        .replaceAll('{CONTEXT}', active.value.pipelineState.context.slice(0, 20_000))
-        .replaceAll('{SELECTED}', selectedNames.value.join('、')),
-    }).catch(() => [] as ExtractedBookEntry[]);
-
-    (card.data as Record<string, unknown>).character_book = {
-      name: active.value.title,
-      entries: entries.map((e, i) => ({
-        id: i, keys: e.keys ?? [], secondary_keys: [], comment: e.comment ?? '',
-        content: e.content ?? '', constant: Boolean(e.constant), selective: false,
-        insertion_order: e.insertion_order ?? 100, enabled: true, position: 'before_char', use_regex: false,
-        extensions: {},
-      })),
-    };
+    // 世界书步已跑过时重跑本步：保留既有条目，避免覆盖
+    const prevEntries = active.value.pipelineState.worldbookEntries;
 
     await projectService.updateProject(active.value.id, (p) => {
       p.pipelineState.extractedCard = card;
-      p.pipelineState.stage = 'style';
-      projectService.logStage(p, 'extract', `抽卡完成 + 世界书 ${entries.length} 条`);
+      p.pipelineState.stage = 'worldbook';
+      projectService.logStage(p, 'extract', '基础卡抽取完成');
+      if (prevEntries?.length) {
+        applyWorldbookEntries(card, prevEntries);
+        projectService.logStage(p, 'extract', `已回填既有世界书 ${prevEntries.length} 条`);
+      }
     });
     await reload();
-    message.success('成卡草稿已生成（含世界书）');
+    message.success('基础卡抽取完成（世界书为独立步骤，可单独重跑）');
+  } catch (e) {
+    message.error((e as Error).message);
+  } finally {
+    busy.value = '';
+  }
+}
+
+const wbMode = ref<'six' | 'traj5'>('six');
+
+/** 把条目写进抽取卡（id 重排，与抽取步解耦） */
+function applyWorldbookEntries(card: AnyCard, entries: ExtractedBookEntry[]): void {
+  (card.data as Record<string, unknown>).character_book = {
+    name: card.data.name,
+    entries: entries.map((e, i) => ({
+      id: i, keys: e.keys ?? [], secondary_keys: [], comment: e.comment ?? '',
+      content: e.content ?? '', constant: Boolean(e.constant), selective: false,
+      insertion_order: e.insertion_order ?? 100, enabled: true, position: 'before_char', use_regex: false,
+      extensions: {},
+    })),
+  };
+}
+
+/** 步骤 4：世界书任务（六类任务 / 5 类轨迹，可独立重跑） */
+async function stageWorldbook() {
+  if (!active.value) return;
+  const card = active.value.pipelineState.extractedCard;
+  if (!card) {
+    message.error('请先完成抽取成卡');
+    return;
+  }
+  busy.value = 'worldbook';
+  try {
+    let entries: ExtractedBookEntry[] = [];
+
+    if (wbMode.value === 'six') {
+      const wbPrompt = await findPrompt('novel:worldbook');
+      if (!wbPrompt) return;
+      entries = await runFieldAiJson<ExtractedBookEntry[]>({
+        feature: '工坊:世界书六类',
+        systemPrompt: wbPrompt.system,
+        userPrompt: wbPrompt.userTemplate
+          .replaceAll('{ANALYSIS}', active.value.pipelineState.analysis.slice(0, 20_000))
+          .replaceAll('{CONTEXT}', active.value.pipelineState.context.slice(0, 20_000))
+          .replaceAll('{SELECTED}', selectedNames.value.join('、')),
+      }).catch(() => [] as ExtractedBookEntry[]);
+    } else {
+      // 5 类轨迹：以全书章节文本为源，走 core/novel/extract5 引擎（逐片×逐类）
+      const config: ExtractConfig = {
+        novelName: active.value.title,
+        chapterName: '',
+        protagonistName: selectedNames.value[0] ?? '',
+        userMode: 'replace',
+        chunkStrategy: 'auto',
+        chaptersPerChunk: 5,
+        wordsPerChunk: 10000,
+        selectedTypes: ['character', 'eventline', 'timeline', 'setting', 'item_trajectory'],
+      };
+      const fullText = active.value.chapters.map((c) => c.content).join('\n\n');
+      const state = initExtractState(config, fullText);
+      for (let ci = 0; ci < state.chunks.length; ci++) {
+        for (const type of config.selectedTypes) {
+          await extractOne(state, ci, type);
+        }
+      }
+      const converted = extractionToWorldEntries(state.extraction, config);
+      entries = converted.map((e) => ({
+        comment: e.comment,
+        keys: e.keys,
+        content: e.content,
+        constant: e.constant,
+        insertion_order: e.insertion_order,
+      }));
+    }
+
+    applyWorldbookEntries(card, entries);
+    await projectService.updateProject(active.value.id, (p) => {
+      p.pipelineState.worldbookEntries = entries;
+      p.pipelineState.worldbookMode = wbMode.value;
+      p.pipelineState.stage = 'style';
+      projectService.logStage(p, 'worldbook', `世界书 ${entries.length} 条（${wbMode.value === 'six' ? '六类任务' : '5 类轨迹'}）`);
+    });
+    await reload();
+    message.success(`世界书完成：${entries.length} 条（失败只重跑本步）`);
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -405,15 +478,17 @@ const stageIndex = computed(() => {
               </NCollapse>
             </NCard>
 
-            <!-- 抽卡 -->
-            <NCard size="small" title="③ 抽卡 + 世界书六类任务">
+            <!-- 抽卡（与世界书拆分，独立重跑） -->
+            <NCard size="small" title="③ 抽取成卡（基础卡）">
               <NSpace :size="8">
                 <NButton size="tiny" type="primary" :loading="busy === 'extract'" :disabled="!active.pipelineState.selected.length" @click="stageExtract">
-                  <template #icon><NIcon><ColorWandOutline /></NIcon></template>一键抽取成卡
+                  <template #icon><NIcon><ColorWandOutline /></NIcon></template>抽取成卡
                 </NButton>
+                <NTag v-if="active.pipelineState.extractedCard" size="tiny" :bordered="false" type="success">✓ 已抽取</NTag>
+                <NTag v-else-if="active.pipelineState.selected.length" size="tiny" :bordered="false" type="warning">↻ 待执行</NTag>
               </NSpace>
               <NText depth="3" style="font-size: 12px; display: block; margin-top: 6px">
-                description → personality → first_mes → 世界书（世界观/蓝灯/配角/剧情分段/人物列表/大纲）按所选模板一次生成
+                description → personality → first_mes 按所选模板生成（不含世界书）
               </NText>
               <NCollapse v-if="active.pipelineState.extractedCard" style="margin-top: 8px">
                 <NCollapseItem title="查看成卡 JSON" name="c">
@@ -422,8 +497,28 @@ const stageIndex = computed(() => {
               </NCollapse>
             </NCard>
 
+            <!-- 世界书任务（独立重跑；两种模式） -->
+            <NCard size="small" title="④ 世界书任务">
+              <NSpace :size="8" align="center">
+                <NRadioGroup v-model:value="wbMode" size="tiny">
+                  <NRadioButton value="six">六类任务（一次成书）</NRadioButton>
+                  <NRadioButton value="traj5">5 类轨迹（逐片×逐类，蓝绿灯自动分配）</NRadioButton>
+                </NRadioGroup>
+                <NButton size="tiny" type="primary" :loading="busy === 'worldbook'" :disabled="!active.pipelineState.extractedCard" @click="stageWorldbook">
+                  <template #icon><NIcon><BookOutline /></NIcon></template>
+                  {{ active.pipelineState.worldbookEntries?.length ? '重跑世界书' : '生成世界书' }}
+                </NButton>
+                <NTag v-if="active.pipelineState.worldbookEntries?.length" size="tiny" :bordered="false" type="success">
+                  ✓ {{ active.pipelineState.worldbookEntries!.length }} 条（{{ active.pipelineState.worldbookMode === 'traj5' ? '5 类轨迹' : '六类' }}）
+                </NTag>
+              </NSpace>
+              <NText depth="3" style="font-size: 12px; display: block; margin-top: 6px">
+                与抽取步拆开：世界书失败只重跑本步，不影响已抽取的卡；产物独立落 pipelineState.worldbookEntries
+              </NText>
+            </NCard>
+
             <!-- 开场白 + 人设 -->
-            <NCard size="small" title="④ 文风开场白与 user 人设">
+            <NCard size="small" title="⑤ 文风开场白与 user 人设">
               <NSpace :size="8">
                 <NButton size="tiny" secondary :loading="busy === 'greeting'" :disabled="!active.pipelineState.extractedCard" @click="stageGreeting">文风蒸馏 + 开场白</NButton>
                 <NButton size="tiny" secondary :loading="busy === 'persona'" @click="stagePersona">生成 user 人设</NButton>

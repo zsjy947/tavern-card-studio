@@ -1,20 +1,26 @@
 /**
  * 备份：全量导出/导入 zip（JSZip 打包所有表 JSON + 封面图）。
+ * 已安装字体（fonts/font_blobs）不进备份：体积大且可随时重新下载/导入。
  */
 import JSZip from 'jszip';
 import { getStore } from '@/db';
+import { resetSeededFlag } from './templateService';
+
+/** 不参与备份的表 */
+const BACKUP_EXCLUDED = new Set(['fonts', 'font_blobs']);
 
 export async function exportBackup(): Promise<Blob> {
   const store = await getStore();
   const dump = await store.dump();
   const zip = new JSZip();
+  const tables = Object.fromEntries(Object.entries(dump).filter(([k]) => !BACKUP_EXCLUDED.has(k)));
   zip.file('manifest.json', JSON.stringify({
     app: 'tavern-card-studio',
     version: 1,
     exportedAt: new Date().toISOString(),
-    tables: Object.fromEntries(Object.entries(dump).map(([k, v]) => [k, v.length])),
+    tables: Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length])),
   }, null, 2));
-  for (const [table, rows] of Object.entries(dump)) {
+  for (const [table, rows] of Object.entries(tables)) {
     zip.file(`tables/${table}.json`, JSON.stringify(rows));
   }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
@@ -29,30 +35,36 @@ export async function importBackup(blob: Blob | Uint8Array, opts: { wipe?: boole
 
   const store = await getStore();
   const counts: Record<string, number> = {};
+  let touchedTemplates = false;
   for (const file of Object.values(zip.files)) {
     const m = /^tables\/(.+)\.json$/.exec(file.name);
     if (!m) continue;
     const table = m[1]!;
+    if (table === 'templates') touchedTemplates = true;
     const rows = JSON.parse(await file.async('string')) as { id: string }[];
     if (opts.wipe) await store.clear(table);
     await store.bulkPut(table, rows.map((r) => ({ id: r.id, value: r })));
     counts[table] = rows.length;
   }
+  // wipe 导入会清掉 templates 表：复位播种标记，让内置模板在下次访问时重新补种
+  if (touchedTemplates) resetSeededFlag();
   return { tables: counts };
 }
 
-/** 浏览器下载工具 */
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+/** 浏览器下载工具 / 桌面端写全局导出目录（见 exportService） */
+import { saveExportFile } from './exportService';
+
+/**
+ * 保存 blob。桌面端返回写入的完整路径；浏览器端走 <a download> 返回 null。
+ * 历史函数名保留 download*，调用方按需 await 获取路径。
+ */
+export async function downloadBlob(blob: Blob, filename: string): Promise<string | null> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return saveExportFile({ name: filename, bytes, mime: blob.type || 'application/octet-stream' });
 }
 
-export function downloadText(text: string, filename: string, mime = 'application/json'): void {
-  downloadBlob(new Blob([text], { type: mime }), filename);
+export async function downloadText(text: string, filename: string, mime = 'application/json'): Promise<string | null> {
+  return saveExportFile({ name: filename, text, mime });
 }
 
 export function timestampName(prefix: string, ext: string): string {

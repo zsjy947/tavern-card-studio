@@ -48,9 +48,8 @@ const EVENT: CardTemplatePayload = {
   fields: [
     { key: 'name', label: '事件/角色名', hint: '以事件命名的卡名', placeholder: '深夜便利店', required: true },
     { key: 'scenario', label: '核心事件', hint: '先写事件：发生了什么、有什么悬念、参与者是谁', required: true },
-    { key: 'description', label: '关键人物与规则', hint: '事件中的关键 NPC 各一段 + 事件规则（可选：随机事件表）', required: true },
+    { key: 'description', label: '世界与事件规则', hint: '世界观、事件规则与整体基调；各成员的详细设定请用「角色成员」生成到世界书，不写在这里', required: true },
     { key: 'first_mes', label: '开场情景', hint: '把 {{user}} 放进事件现场的瞬间', required: true },
-    { key: 'personality', label: 'NPC 性格速写', hint: '每个 NPC 一行' },
     { key: 'mes_example', label: '事件推进示例', hint: '示范一次事件推进的对话' },
     ...COMMON_TAIL,
   ],
@@ -88,6 +87,8 @@ const BLANK: CardTemplatePayload = {
   defaultTags: [],
   fields: [
     { key: 'name', label: '角色名', hint: '必填', required: true },
+    { key: 'description', label: '角色描述', hint: '自由书写：人设、世界、规则都可以；也可在步骤 3 添加自定义字段', required: true },
+    { key: 'first_mes', label: '开场白', hint: '用 {{user}} 指代玩家', required: true },
     ...COMMON_TAIL,
   ],
 };

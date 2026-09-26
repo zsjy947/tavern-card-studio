@@ -12,14 +12,41 @@ async function getSetting<T>(key: string): Promise<T | undefined> {
   return (await getStore()).get<{ id: string; value: T }>('settings', key)?.then((r) => r?.value);
 }
 
+/** 进程内已播种标记：避免每次 listTemplates 都做缺漏检查 */
+let seededInMemory = false;
+
+/**
+ * 内置模板播种（按 id 增量 + 内置行 payload 随版本刷新）：
+ * - 缺失的内置模板补种；
+ * - 已有 builtin 行刷新为最新定义（用户修改 builtin 走副本语义，builtin 行本身不会被改，
+ *   因此覆盖是安全的）——否则旧库永远停留在旧版模板（如空白模板缺字段槽位）。
+ */
 export async function ensureSeeded(): Promise<void> {
+  if (seededInMemory) return;
   const store = await getStore();
-  if (await getSetting<boolean>(SEED_FLAG)) return;
+  const existing = await store.list<TemplateRow>('templates');
+  const byId = new Map(existing.map((t) => [t.id, t]));
   const now = new Date().toISOString();
   for (const t of BUILTIN_TEMPLATES) {
-    await store.put('templates', t.id, { ...t, builtin: true, createdAt: now, updatedAt: now } satisfies TemplateRow);
+    const prev = byId.get(t.id);
+    if (!prev) {
+      await store.put('templates', t.id, { ...t, builtin: true, createdAt: now, updatedAt: now } satisfies TemplateRow);
+    } else if (
+      prev.builtin
+      && (prev.name !== t.name || prev.description !== t.description || JSON.stringify(prev.payload) !== JSON.stringify(t.payload))
+    ) {
+      await store.put('templates', t.id, { ...t, builtin: true, createdAt: prev.createdAt, updatedAt: now } satisfies TemplateRow);
+    }
   }
-  await store.put('settings', SEED_FLAG, { id: SEED_FLAG, value: true });
+  if (!(await getSetting<boolean>(SEED_FLAG))) {
+    await store.put('settings', SEED_FLAG, { id: SEED_FLAG, value: true });
+  }
+  seededInMemory = true;
+}
+
+/** 备份导入（尤其 wipe）清掉 templates 表后调用：允许进程内重新补种内置模板 */
+export function resetSeededFlag(): void {
+  seededInMemory = false;
 }
 
 export async function listTemplates(kind?: TemplateKind): Promise<TemplateRow[]> {

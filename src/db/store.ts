@@ -14,6 +14,12 @@ export interface DataStore {
   get<T>(table: string, id: string): Promise<T | undefined>;
   /** 全表扫描（本地规模小，直接 list；排序过滤在上层做） */
   list<T>(table: string): Promise<T[]>;
+  /**
+   * keyset 分页（ROADMAP P3-4，大规模卡库）：按 id 升序取一页。
+   * cursor = 上页末位 id（缺省从头）；返回 nextCursor=null 表示没有下一页。
+   * 只作用于展示路径——导入/去重仍走 list 全量。
+   */
+  listPage<T>(table: string, opts?: { cursor?: string; limit?: number }): Promise<{ rows: T[]; nextCursor: string | null }>;
   put<T>(table: string, id: string, value: T): Promise<void>;
   /** 批量写入（导入/恢复用） */
   bulkPut<T>(table: string, entries: { id: string; value: T }[]): Promise<void>;
@@ -22,6 +28,8 @@ export interface DataStore {
   /** 供备份导出 */
   dump(): Promise<Record<string, unknown[]>>;
 }
+
+export const DEFAULT_PAGE_LIMIT = 200;
 
 export const TABLES = [
   'cards',
@@ -33,6 +41,8 @@ export const TABLES = [
   'novel_projects',
   'settings',
   'categories',
+  'fonts',
+  'font_blobs',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];

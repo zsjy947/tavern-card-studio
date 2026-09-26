@@ -1,16 +1,18 @@
 <script setup lang="ts">
-/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告 */
-import { ref } from 'vue';
+/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告、最近转换记录（P1-4） */
+import { onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText,
+  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty,
 } from 'naive-ui';
-import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline } from '@vicons/ionicons5';
+import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline, DownloadOutline } from '@vicons/ionicons5';
 import * as cardService from '@/services/cardService';
 import { parseLooseCard } from '@/core/card';
 import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/core/png';
 import { runStaticChecks } from '@/core/diag/staticChecks';
 import { downloadText, downloadBlob, timestampName } from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
+import { listRecentConversions, recordConversion, reDownloadConversion } from '@/services/converterService';
+import { formatBytes, type RecentConversion } from '@/core/converter/recent';
 import JSZip from 'jszip';
 
 const message = useMessage();
@@ -19,6 +21,35 @@ const dualWrite = ref(true);
 const report = ref<{ name: string; ok: boolean; detail: string }[]>([]);
 const busy = ref(false);
 const lastJsonPreview = ref('');
+const recent = ref<RecentConversion[]>([]);
+// 底图显式选择：不再在选完 JSON 后隐藏式串行弹第二个对话框
+const basePngName = ref('');
+const basePngBytes = ref<Uint8Array | null>(null);
+
+onMounted(async () => {
+  recent.value = await listRecentConversions().catch(() => []);
+});
+
+async function reDownload(entry: RecentConversion) {
+  try {
+    const path = await reDownloadConversion(entry);
+    message.success(path ? `已重新保存：${path}` : `已重新下载 ${entry.outputName}`);
+  } catch (e) {
+    message.warning((e as Error).message);
+  }
+}
+
+async function chooseBasePng() {
+  const files = await pickPngFiles();
+  if (!files.length) return;
+  basePngBytes.value = new Uint8Array(await files[0]!.arrayBuffer());
+  basePngName.value = files[0]!.name;
+}
+
+function clearBasePng() {
+  basePngBytes.value = null;
+  basePngName.value = '';
+}
 
 async function convertPngToJson() {
   const files = await pickPngFiles(true);
@@ -27,74 +58,102 @@ async function convertPngToJson() {
   report.value = [];
   const zip = new JSZip();
   let okCount = 0;
-  for (const f of files) {
-    try {
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const { raw } = extractCardFromPng(bytes);
-      const card = parseLooseCard(raw);
-      const json = JSON.stringify(card, null, 2);
-      lastJsonPreview.value = json.slice(0, 2000);
-      const out = `${sanitizeFilename(f.name.replace(/\.png$/i, ''))}.json`;
-      if (files.length === 1) {
-        downloadText(json, out);
-      } else {
-        zip.file(out, json);
+  let savedPath: string | null = null;
+  try {
+    for (const f of files) {
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const { raw } = extractCardFromPng(bytes);
+        const card = parseLooseCard(raw);
+        const json = JSON.stringify(card, null, 2);
+        lastJsonPreview.value = json.slice(0, 2000);
+        const out = `${sanitizeFilename(f.name.replace(/\.png$/i, ''))}.json`;
+        if (files.length === 1) {
+          savedPath = await downloadText(json, out);
+        } else {
+          zip.file(out, json);
+        }
+        await recordConversion({
+          direction: 'png2json',
+          fileName: f.name,
+          cardName: String(card.data.name ?? ''),
+          spec: card.spec,
+          outputName: out,
+          bytes: new TextEncoder().encode(json),
+          mime: 'application/json',
+          savedPath,
+        }).catch(() => undefined);
+        const issues = runStaticChecks(card);
+        const errors = issues.filter((i) => i.severity === 'error').length;
+        // 明细直接进报告，避免只报「N 个错误」却看不到错在哪
+        const details = issues.slice(0, 4).map((i) => `${i.severity === 'error' ? '✗' : i.severity === 'warn' ? '⚠' : 'ℹ'} ${i.field}：${i.message}`);
+        report.value.push({
+          name: f.name,
+          ok: errors === 0,
+          detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}${issues.length ? `（${issues.length} 项）` : ''}${details.length ? '\n' + details.join('\n') : ''}`,
+        });
+        okCount++;
+      } catch (e) {
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
       }
-      const issues = runStaticChecks(card);
-      const errors = issues.filter((i) => i.severity === 'error').length;
-      report.value.push({
-        name: f.name,
-        ok: errors === 0,
-        detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}`,
-      });
-      okCount++;
-    } catch (e) {
-      report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
     }
+    if (files.length > 1 && okCount) {
+      savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
+    }
+    recent.value = await listRecentConversions().catch(() => recent.value);
+    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
+  } finally {
+    busy.value = false;
   }
-  if (files.length > 1 && okCount) {
-    downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
-  }
-  busy.value = false;
-  message.success(`转换完成 ${okCount}/${files.length}`);
 }
 
-/** JSON→PNG：支持先选卡后选底图，或无底图占位 */
+/** JSON→PNG：底图由面板显式选择（或占位图），不再隐藏式串行弹窗 */
 async function convertJsonToPng() {
   const files = await pickJsonFiles(true);
   if (!files.length) return;
   busy.value = true;
   report.value = [];
-  let basePng: Uint8Array | null = null;
-  const baseFiles = await pickPngFiles();
-  if (baseFiles.length) {
-    basePng = new Uint8Array(await baseFiles[0]!.arrayBuffer());
-  }
+  const basePng = basePngBytes.value;
   const zip = new JSZip();
   let okCount = 0;
-  for (const f of files) {
-    try {
-      const text = await f.text();
-      const card = parseLooseCard(JSON.parse(text));
-      const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
-      const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
-      if (files.length === 1 && !baseFiles.length) {
-        // 单文件也走 zip 太绕，直接下载 png
-        downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
-      } else {
-        zip.file(out, png);
+  let savedPath: string | null = null;
+  try {
+    for (const f of files) {
+      try {
+        const text = await f.text();
+        const card = parseLooseCard(JSON.parse(text));
+        const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
+        const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
+        if (files.length === 1) {
+          // 单文件直接下载 png（无论是否指定底图），避免产物困在永不落地的 zip 里
+          savedPath = await downloadBlob(new Blob([png as BlobPart], { type: 'image/png' }), out);
+        } else {
+          zip.file(out, png);
+        }
+        await recordConversion({
+          direction: 'json2png',
+          fileName: f.name,
+          cardName: String(card.data.name ?? ''),
+          spec: card.spec,
+          outputName: out,
+          bytes: png,
+          mime: 'image/png',
+          savedPath,
+        }).catch(() => undefined);
+        report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? `（底图：${basePngName.value}）` : '（占位底图）'}` });
+        okCount++;
+      } catch (e) {
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
       }
-      report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? '（指定底图）' : '（占位底图）'}` });
-      okCount++;
-    } catch (e) {
-      report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
     }
+    if (files.length > 1 && okCount) {
+      savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
+    }
+    recent.value = await listRecentConversions().catch(() => recent.value);
+    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
+  } finally {
+    busy.value = false;
   }
-  if (files.length > 1 && okCount) {
-    downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
-  }
-  busy.value = false;
-  message.success(`转换完成 ${okCount}/${files.length}`);
 }
 
 function run() {
@@ -121,9 +180,18 @@ function run() {
             读取 PNG 卡内 tEXt 元数据（优先 ccv3，回退 chara），归一化后导出 JSON。多文件自动打包 zip，附完整性校验报告。
           </template>
           <template v-else>
-            把卡 JSON 嵌入 PNG 底图 tEXt 块。先选 JSON（可多选），再可选一张底图；不选底图时使用占位图。
+            把卡 JSON 嵌入 PNG 底图 tEXt 块。先选 JSON（可多选）；底图在下方显式选择，不选时使用占位图。
           </template>
         </NText>
+
+        <NSpace v-if="mode === 'json2png'" :size="10" align="center" style="margin-bottom: 12px">
+          <NText depth="3" style="font-size: 13px">底图：</NText>
+          <NButton v-if="!basePngBytes" size="small" @click="chooseBasePng">选择 PNG…（不选则用占位图）</NButton>
+          <template v-else>
+            <NTag size="small" :bordered="false" type="info" closable @close="clearBasePng">{{ basePngName }}</NTag>
+            <NButton size="small" quaternary @click="chooseBasePng">更换</NButton>
+          </template>
+        </NSpace>
 
         <NSpace :size="10" align="center">
           <NButton type="primary" :loading="busy" @click="run">
@@ -143,7 +211,7 @@ function run() {
               <NSpace :size="8" align="center">
                 <NTag size="small" :bordered="false" :type="r.ok ? 'success' : 'error'">{{ r.ok ? 'OK' : '失败' }}</NTag>
                 <b style="font-size: 13px">{{ r.name }}</b>
-                <NText depth="3" style="font-size: 12px">{{ r.detail }}</NText>
+                <NText depth="3" style="font-size: 12px; white-space: pre-line; line-height: 1.6">{{ r.detail }}</NText>
               </NSpace>
             </NListItem>
           </NList>
@@ -153,6 +221,30 @@ function run() {
       <NCollapse v-if="lastJsonPreview">
         <NCollapseItem title="最后一次转换结果预览" name="preview">
           <NInput type="textarea" :value="lastJsonPreview" :rows="10" readonly />
+        </NCollapseItem>
+      </NCollapse>
+
+      <NCollapse v-if="recent.length" style="margin-top: 4px">
+        <NCollapseItem :title="`最近转换（${recent.length}，上限 50）`" name="recent">
+          <NList bordered size="small">
+            <NListItem v-for="r in recent.slice(0, 20)" :key="r.id">
+              <NSpace :size="8" align="center" style="width: 100%">
+                <NTag size="small" :bordered="false" :type="r.direction === 'png2json' ? 'info' : 'success'">
+                  {{ r.direction === 'png2json' ? 'PNG→JSON' : 'JSON→PNG' }}
+                </NTag>
+                <b style="font-size: 13px">{{ r.cardName || r.fileName }}</b>
+                <NText depth="3" style="font-size: 12px">{{ formatBytes(r.sizeBytes) }} · {{ new Date(r.savedAt).toLocaleString() }}</NText>
+                <NTooltip :disabled="r.sizeBytes <= 2 * 1024 * 1024">
+                  <template #trigger>
+                    <NButton size="tiny" secondary :disabled="r.sizeBytes > 2 * 1024 * 1024" @click="reDownload(r)">
+                      <template #icon><NIcon><DownloadOutline /></NIcon></template>重新下载
+                    </NButton>
+                  </template>
+                  产物 >2MB 未保留，请重新转换
+                </NTooltip>
+              </NSpace>
+            </NListItem>
+          </NList>
         </NCollapseItem>
       </NCollapse>
 
@@ -171,7 +263,7 @@ function run() {
 
 <style scoped>
 .converter-card {
-  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+  background: var(--tcs-fill, rgba(255,255,255,.03)); border: 1px solid var(--tcs-border, rgba(255,255,255,.07));
   border-radius: 14px; padding: 18px 20px;
 }
 </style>

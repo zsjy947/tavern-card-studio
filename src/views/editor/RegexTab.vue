@@ -45,8 +45,16 @@ function remove(i: number) {
   mutate((arr) => arr.splice(i, 1));
 }
 
-const editing = ref<number | null>(null);
 const mode = ref<'simple' | 'advanced'>('simple');
+/** 每个脚本条目的折叠状态（默认展开，点击「收起」折叠正文） */
+const collapsed = ref<Set<number>>(new Set());
+
+function toggleCollapse(i: number) {
+  const next = new Set(collapsed.value);
+  if (next.has(i)) next.delete(i);
+  else next.add(i);
+  collapsed.value = next;
+}
 
 /* ---------------- 实时测试 ---------------- */
 const sampleText = ref('角色轻声说："你好，{{user}}。"\n<think>内心：好紧张…</think>\n<StatusPlaceHolder/>');
@@ -115,11 +123,11 @@ function applyTemplate(row: TemplateRow) {
             <NButton size="tiny" quaternary type="error" @click="remove(i)">
               <template #icon><NIcon><TrashOutline /></NIcon></template>
             </NButton>
-            <NButton size="tiny" quaternary @click="editing = editing === i ? null : i">
-              {{ editing === i ? '收起' : '展开' }}
+            <NButton size="tiny" quaternary @click="toggleCollapse(i)">
+              {{ collapsed.has(i) ? '展开' : '收起' }}
             </NButton>
           </div>
-          <div class="rx-body">
+          <div v-show="!collapsed.has(i)" class="rx-body">
             <div class="rx-field">
               <span class="rx-label">查找</span>
               <NInput size="small" :value="s.findRegex" placeholder="/pattern/flags 或裸 pattern"
@@ -195,5 +203,5 @@ function applyTemplate(row: TemplateRow) {
 .rx-tester { border: 1px dashed rgba(139,92,246,.35); border-radius: 10px; padding: 12px; }
 .rx-tester-title { display: flex; align-items: center; gap: 6px; font-weight: 700; margin-bottom: 8px; }
 .rx-tester-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.rx-tester-out { white-space: pre-wrap; background: rgba(0,0,0,.3); border-radius: 8px; padding: 8px 10px; min-height: 180px; font-size: 13px; line-height: 1.6; }
+.rx-tester-out { white-space: pre-wrap; background: var(--tcs-editor-bg, rgba(0,0,0,.3)); border-radius: 8px; padding: 8px 10px; min-height: 180px; font-size: 13px; line-height: 1.6; }
 </style>

@@ -1,0 +1,45 @@
+{
+  "app": {
+    "mode": { "desktop": "桌面模式", "browser": "浏览器模式" },
+    "noAi": "未配置 AI"
+  },
+  "nav": {
+    "library": "卡库",
+    "wizard": "生成向导",
+    "converter": "转换工具",
+    "beautify": "美化工作台",
+    "templates": "模板中心",
+    "ai": "AI 中心",
+    "diagnosis": "诊断与调整",
+    "novel": "同人卡工坊",
+    "stats": "统计看板",
+    "settings": "设置与备份",
+    "guide": "使用指南"
+  },
+  "common": {
+    "aiGenerate": "AI 生成",
+    "optimize": "优化",
+    "translate": "翻译",
+    "tokens": "tk",
+    "chars": "字",
+    "tokensEstimated": "~",
+    "cancel": "取消",
+    "confirm": "确定",
+    "save": "保存",
+    "close": "关闭"
+  },
+  "command": {
+    "open": "打开 · {name}",
+    "groupNav": "导航",
+    "groupOps": "操作",
+    "groupTheme": "外观",
+    "newCard": "新建角色卡",
+    "compare": "打开 · 两卡对比",
+    "switchTheme": "切换主题 · {name}",
+    "appearance": "外观与字体设置…"
+  },
+  "settings": {
+    "language": "界面语言",
+    "languageAuto": "跟随系统语言初始化（默认中文）"
+  }
+}

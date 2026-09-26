@@ -20,28 +20,32 @@ export const SPEC_V3 = 'chara_card_v3';
 
 export const bookPositionEnum = z.enum(['before_char', 'after_char']);
 
+/** 真实社区卡常见 0/1 数字布尔（如 delay_until_recursion: 0，ST 部分版本导出形态），宽容为 boolean */
+const boolish = z.preprocess((v) => (typeof v === 'number' ? v !== 0 : v), z.boolean().optional());
+const boolishNullable = z.preprocess((v) => (typeof v === 'number' ? v !== 0 : v), z.boolean().nullable().optional());
+
 export const bookEntryExtensionSchema = z
   .object({
     // SillyTavern 全局世界书专属字段，双向互转时存放于此（见 core/lorebook）
     position: z.number().int().optional(),
-    exclude_recursion: z.boolean().optional(),
-    prevent_recursion: z.boolean().optional(),
-    delay_until_recursion: z.boolean().optional(),
+    exclude_recursion: boolish,
+    prevent_recursion: boolish,
+    delay_until_recursion: boolish,
     display_index: z.number().int().optional(),
     probability: z.number().optional(),
-    useProbability: z.boolean().optional(),
+    useProbability: boolish,
     depth: z.number().int().optional(),
     selectiveLogic: z.number().int().optional(),
     group: z.string().optional(),
-    groupOverride: z.boolean().optional(),
+    groupOverride: boolish,
     groupWeight: z.number().optional(),
     scan_depth: z.number().int().nullable().optional(),
-    case_sensitive: z.boolean().nullable().optional(),
-    match_whole_words: z.boolean().nullable().optional(),
-    use_group_scoring: z.boolean().nullable().optional(),
+    case_sensitive: boolishNullable,
+    match_whole_words: boolishNullable,
+    use_group_scoring: boolishNullable,
     automation_id: z.string().optional(),
     role: z.number().int().optional(),
-    vectorized: z.boolean().optional(),
+    vectorized: boolish,
     sticky: z.number().nullable().optional(),
     cooldown: z.number().nullable().optional(),
     delay: z.number().nullable().optional(),
@@ -51,20 +55,28 @@ export const bookEntryExtensionSchema = z
   .partial()
   .passthrough();
 
-export const bookEntrySchema = z.object({
-  id: z.number().int(),
-  keys: z.array(z.string()).default([]),
-  secondary_keys: z.array(z.string()).default([]),
-  comment: z.string().default(''),
-  content: z.string().default(''),
-  constant: z.boolean().default(false),
-  selective: z.boolean().default(false),
-  insertion_order: z.number().int().default(100),
-  enabled: z.boolean().default(true),
-  position: bookPositionEnum.default('before_char'),
-  use_regex: z.boolean().default(false),
-  extensions: bookEntryExtensionSchema.default({}),
-});
+export const bookEntrySchema = z
+  .object({
+    // 真实社区卡条目可能缺 id：在 characterBookSchema.entries 的 preprocess 里按序号兜底
+    id: z.number().int(),
+    keys: z.array(z.string()).default([]),
+    secondary_keys: z.array(z.string()).default([]),
+    // 真实社区卡偶见 comment 为数组（标签式标题）或数字：统一收敛为字符串
+    comment: z.preprocess((v) => {
+      if (v == null) return undefined;
+      if (Array.isArray(v)) return v.map(String).join('、');
+      return typeof v === 'string' ? v : String(v);
+    }, z.string().default('')),
+    content: z.string().default(''),
+    constant: z.boolean().default(false),
+    selective: z.boolean().default(false),
+    insertion_order: z.number().int().default(100),
+    enabled: z.boolean().default(true),
+    position: bookPositionEnum.default('before_char'),
+    use_regex: z.boolean().default(false),
+    extensions: bookEntryExtensionSchema.default({}),
+  })
+  .passthrough();
 
 export const characterBookSchema = z.object({
   name: z.string().optional(),
@@ -73,57 +85,119 @@ export const characterBookSchema = z.object({
   token_budget: z.number().int().optional(),
   recursive_scanning: z.boolean().optional(),
   extensions: z.record(z.unknown()).default({}),
-  entries: z.array(bookEntrySchema).default([]),
+  entries: z.preprocess(fillMissingIds((i) => i), z.array(bookEntrySchema).default([])),
 });
 
 /* ------------------------------------------------------------------ */
 /* 正则脚本（SillyTavern extensions.regex_scripts）                     */
 /* ------------------------------------------------------------------ */
 
-export const regexScriptSchema = z.object({
-  id: z.string(),
-  scriptName: z.string(),
-  findRegex: z.string(),
-  replaceString: z.string().default(''),
-  trimStrings: z.array(z.string()).default([]),
-  placement: z.array(z.number().int()).default([]),
-  disabled: z.boolean().default(false),
-  markdownOnly: z.boolean().default(false),
-  promptOnly: z.boolean().default(false),
-  runOnEdit: z.boolean().default(true),
-  substituteRegex: z.number().int().default(0),
-  minDepth: z.number().int().nullable().default(null),
-  maxDepth: z.number().int().nullable().default(null),
-});
+export const regexScriptSchema = z
+  .object({
+    // 真实社区卡的正则脚本普遍没有 id（ST 保存时才生成）：缺失时按序号兜底（见下方 preprocess）
+    id: z.string(),
+    scriptName: z.string(),
+    findRegex: z.string(),
+    replaceString: z.string().default(''),
+    trimStrings: z.array(z.string()).default([]),
+    placement: z.array(z.number().int()).default([]),
+    disabled: z.boolean().default(false),
+    markdownOnly: z.boolean().default(false),
+    promptOnly: z.boolean().default(false),
+    runOnEdit: z.boolean().default(true),
+    substituteRegex: z.number().int().default(0),
+    minDepth: z.number().int().nullable().default(null),
+    maxDepth: z.number().int().nullable().default(null),
+  })
+  .passthrough();
 
 /* ------------------------------------------------------------------ */
 /* 酒馆助手脚本 / 快速回复                                              */
 /* ------------------------------------------------------------------ */
 
-export const tavernHelperScriptSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  comment: z.string().default(''),
-  type: z.string().default('inline'),
-  enabled: z.boolean().default(true),
-  autoRun: z.boolean().default(false),
-  // 脚本触发时机（TavernHelper 约定字符串）
-  event: z.string().default(''),
-  content: z.string().default(''),
+/** 酒馆助手脚本按钮组（MVU 变量系统脚本挂 6 个操作按钮用） */
+export const tavernHelperButtonsSchema = z.object({
+  enabled: z.boolean().default(false),
+  buttons: z
+    .array(
+      z.object({
+        name: z.string(),
+        visible: z.boolean().default(false),
+      }),
+    )
+    .default([]),
 });
 
-export const quickReplySchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  message: z.string().default(''),
-  /** TavernHelper QuickReply v2: setLabel? 简化为字符串命令 */
-  command: z.string().default(''),
-  fileName: z.string().default(''),
-  hidden: z.boolean().default(false),
-  executeOnStartup: z.boolean().default(false),
-  executeOnUser: z.boolean().default(false),
-  executeOnAi: z.boolean().default(false),
+export const tavernHelperScriptSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    comment: z.string().default(''),
+    type: z.string().default('inline'),
+    enabled: z.boolean().default(true),
+    autoRun: z.boolean().default(false),
+    // 脚本触发时机（TavernHelper 约定字符串）
+    event: z.string().default(''),
+    content: z.string().default(''),
+    // 脚本按钮组（酒馆助手「按钮」功能；缺省时 passthrough 保留社区卡自有形态）
+    button: tavernHelperButtonsSchema.optional(),
+  })
+  .passthrough();
+
+/* ------------------------------------------------------------------ */
+/* MVU 变量组（extensions.tcsMvuVarGroups，变量设计器持久化形态）        */
+/* ------------------------------------------------------------------ */
+
+export const mvuVarFieldSchema = z.object({
+  /** 点路径（如 `货币.石质天元`、`装备.头部`），生成时构建嵌套树 */
+  name: z.string(),
+  type: z.enum(['number', 'string', 'boolean', 'enum', 'record', 'array']),
+  defaultValue: z.string().default(''),
+  min: z.number().nullable().default(null),
+  max: z.number().nullable().default(null),
+  clamp: z.boolean().default(false),
+  /** enum 类型的可选值（逗号分隔） */
+  enumValues: z.string().default(''),
+  /** record 类型的子字段（`名字:string, 等级:number` 形态） */
+  recordFields: z.string().default(''),
+  /** 更新规则 check 的具体触发条件与幅度描述 */
+  description: z.string().default(''),
 });
+
+export const mvuVarGroupSchema = z.object({
+  name: z.string(),
+  fields: z.array(mvuVarFieldSchema).default([]),
+});
+
+export const quickReplySchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    message: z.string().default(''),
+    /** TavernHelper QuickReply v2: setLabel? 简化为字符串命令 */
+    command: z.string().default(''),
+    fileName: z.string().default(''),
+    hidden: z.boolean().default(false),
+    executeOnStartup: z.boolean().default(false),
+    executeOnUser: z.boolean().default(false),
+    executeOnAi: z.boolean().default(false),
+  })
+  .passthrough();
+
+/**
+ * 数组元素缺 id 时的确定性兜底（按序号补）：同一张卡两次导入得到相同 id，
+ * 保证 dataHash 稳定（导入去重依赖哈希一致）。makeId 收到序号，返回可用的 id。
+ */
+function fillMissingIds(makeId: (i: number) => unknown) {
+  return (raw: unknown): unknown => {
+    if (!Array.isArray(raw)) return raw;
+    return raw.map((item, i) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      if ((item as { id?: unknown }).id !== undefined) return item;
+      return { ...item, id: makeId(i) };
+    });
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* depth prompt 等                                                      */
@@ -166,10 +240,15 @@ export const cardDataBaseSchema = z.object({
       fav: z.boolean().optional(),
       world: z.string().optional(),
       depth_prompt: depthPromptSchema.optional(),
-      regex_scripts: z.array(regexScriptSchema).optional(),
-      TavernHelper_scripts: z.array(tavernHelperScriptSchema).optional(),
-      tavern_helper: z.record(z.unknown()).optional(),
-      QuickReply: z.record(z.unknown()).optional(),
+      regex_scripts: z.preprocess(fillMissingIds((i) => `script_${i}`), z.array(regexScriptSchema).optional()),
+      TavernHelper_scripts: z.preprocess(fillMissingIds((i) => `ths_${i}`), z.array(tavernHelperScriptSchema).optional()),
+      // 真实社区卡 tavern_helper 存在数组形态（不同 TavernHelper 版本）： union 透传保留原数据
+      tavern_helper: z.union([z.record(z.unknown()), z.array(z.unknown())]).optional(),
+      QuickReply: z.preprocess(fillMissingIds((i) => `qr_${i}`), z.array(quickReplySchema).optional()),
+      // MVU 变量设计器持久化（本项目 tcs 前缀；passthrough 本就兼容旧卡，此处为编辑器读写提供类型）
+      tcsMvuVarGroups: z.array(mvuVarGroupSchema).optional(),
+      // 世界书批量生成 / 小说提取的参考小说素材原文
+      tcsReferenceNovel: z.string().optional(),
     })
     .partial()
     .passthrough()
@@ -221,7 +300,10 @@ export type BookEntry = z.infer<typeof bookEntrySchema>;
 export type CharacterBook = z.infer<typeof characterBookSchema>;
 export type RegexScript = z.infer<typeof regexScriptSchema>;
 export type TavernHelperScript = z.infer<typeof tavernHelperScriptSchema>;
+export type TavernHelperButtons = z.infer<typeof tavernHelperButtonsSchema>;
 export type QuickReply = z.infer<typeof quickReplySchema>;
+export type MvuVarField = z.infer<typeof mvuVarFieldSchema>;
+export type MvuVarGroup = z.infer<typeof mvuVarGroupSchema>;
 export type DepthPrompt = z.infer<typeof depthPromptSchema>;
 export type CardData = z.infer<typeof cardDataBaseSchema>;
 export type CardDataV3 = z.infer<typeof cardDataV3Schema>;

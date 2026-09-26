@@ -27,19 +27,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/icon.png"],
-    "resources": ["resources/templates/*"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese", "English"]
+        "languages": [
+          "SimpChinese",
+          "English"
+        ]
       }
-    }
-  },
-  "plugins": {
-    "sql": {
-      "preload": {}
     }
   }
 }

@@ -1,11 +1,11 @@
 /**
- * Tauri SQLite 驱动：通过 window.__TAURI__.core.invoke 调用 plugin:sql 命令，
- * 无需引入 @tauri-apps/plugin-sql JS 包（保持 web 构建零 Tauri 依赖）。
+ * Tauri SQLite 驱动：通过 window.__TAURI__.core.invoke 调用 plugin:sql 命令
+ * 与自定义 db_url 命令（便携优先：exe 同级 ./data/studio.db，失败回退 AppData）。
  */
 
-import type { DataStore } from './store';
+import { DEFAULT_PAGE_LIMIT, type DataStore } from './store';
 
-interface TauriInvoke {
+export interface TauriInvoke {
   (cmd: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -17,14 +17,12 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-function tauriInvoke(): TauriInvoke {
+/** 全局 invoke（withGlobalTauri）；非 Tauri 环境调用会抛错 */
+export function tauriInvoke(): TauriInvoke {
   const g = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
   if (!g?.core?.invoke) throw new Error('window.__TAURI__ 不可用（需要在 tauri.conf.json 开启 withGlobalTauri）');
   return g.core.invoke;
 }
-
-/** 数据库连接字符串：便携模式 ./data/studio.db（Rust 侧已切好工作目录） */
-const DB_URL = 'sqlite:studio.db';
 
 interface SqlRow {
   [k: string]: unknown;
@@ -32,17 +30,23 @@ interface SqlRow {
 
 export class TauriSqlStore implements DataStore {
   readonly kind = 'sqlite' as const;
+  private db: string | null = null;
   private ready: Promise<void>;
 
   constructor() {
+    const invoke = tauriInvoke();
+    // 连接串由 Rust 决定：便携绝对路径或相对（AppData）
     this.ready = (async () => {
-      const invoke = tauriInvoke();
-      await invoke('plugin:sql|load', { db: DB_URL });
-      for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories']) {
+      this.db = await invoke('db_url')
+        .then((url) => String(url))
+        .catch(() => 'sqlite:studio.db');
+      await invoke('plugin:sql|load', { db: this.db });
+      for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', 'fonts', 'font_blobs']) {
         await invoke('plugin:sql|execute', {
-          db: DB_URL,
+          db: this.db,
           query: `CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY, json TEXT NOT NULL)`,
-          params: [],
+          // 插件命令参数名是 values（与 exec/run 同因，见下）
+          values: [],
         });
       }
     })();
@@ -50,14 +54,13 @@ export class TauriSqlStore implements DataStore {
 
   private async exec(query: string, params: unknown[]): Promise<SqlRow[]> {
     await this.ready;
-    const invoke = tauriInvoke();
-    return (await invoke('plugin:sql|select', { db: DB_URL, query, params })) as SqlRow[];
+    // 注意：插件命令的参数名是 values（不是 params），错名会被 invoke 层直接拒绝
+    return (await tauriInvoke()('plugin:sql|select', { db: this.db!, query, values: params })) as SqlRow[];
   }
 
   private async run(query: string, params: unknown[]): Promise<void> {
     await this.ready;
-    const invoke = tauriInvoke();
-    await invoke('plugin:sql|execute', { db: DB_URL, query, params });
+    await tauriInvoke()('plugin:sql|execute', { db: this.db!, query, values: params });
   }
 
   async get<T>(table: string, id: string): Promise<T | undefined> {
@@ -68,6 +71,20 @@ export class TauriSqlStore implements DataStore {
   async list<T>(table: string): Promise<T[]> {
     const rows = await this.exec(`SELECT json FROM ${table}`, []);
     return rows.map((r) => JSON.parse(String(r.json)) as T);
+  }
+
+  /** keyset 分页（id 升序，WHERE id > ? ORDER BY id LIMIT ? 下推 SQLite） */
+  async listPage<T>(table: string, opts: { cursor?: string; limit?: number } = {}): Promise<{ rows: T[]; nextCursor: string | null }> {
+    const limit = opts.limit ?? DEFAULT_PAGE_LIMIT;
+    const rows = opts.cursor
+      ? await this.exec(`SELECT id, json FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`, [opts.cursor, limit + 1])
+      : await this.exec(`SELECT id, json FROM ${table} ORDER BY id LIMIT $1`, [limit + 1]);
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      rows: page.map((r) => JSON.parse(String(r.json)) as T),
+      nextCursor: hasMore ? String(page[page.length - 1]!.id) : null,
+    };
   }
 
   async put<T>(table: string, id: string, value: T): Promise<void> {
@@ -91,7 +108,7 @@ export class TauriSqlStore implements DataStore {
 
   async dump(): Promise<Record<string, unknown[]>> {
     const out: Record<string, unknown[]> = {};
-    for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories']) {
+    for (const t of ['cards', 'card_versions', 'templates', 'skills', 'ai_channels', 'ai_usage_logs', 'novel_projects', 'settings', 'categories', 'fonts', 'font_blobs']) {
       out[t] = await this.list(t);
     }
     return out;

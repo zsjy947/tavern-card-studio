@@ -63,6 +63,10 @@ export interface AiChannelRow {
   apiKey: string;
   modelId: string;
   isActive: boolean;
+  /** 全局系统提示词：所有请求自动前插 system 消息（个性化文风/偏好） */
+  globalSystemPrompt?: string;
+  /** 并发上限（默认 2） */
+  concurrencyLimit?: number;
 }
 
 export interface AiUsageLogRow {
@@ -108,7 +112,12 @@ export interface NovelProjectRow {
     context: string;
     templateId: string | null;
     cardTemplateFilled: Record<string, unknown> | null;
+    /** 抽取步产物（基础卡，未含世界书） */
     extractedCard: AnyCard | null;
+    /** 世界书步产物（与抽取步拆开，可独立重跑；注入进 extractedCard.character_book） */
+    worldbookEntries: { comment: string; keys: string[]; content: string; constant?: boolean; insertion_order?: number }[] | null;
+    /** 世界书步使用的模式（六类任务 / 5 类轨迹），重跑时保持一致 */
+    worldbookMode: 'six' | 'traj5' | null;
     userPersona: string;
     greetings: string[];
     logs: { at: string; stage: PipelineStage; message: string }[];

@@ -32,7 +32,9 @@ function removeGreeting(i: number) {
   const next = [...greetings.value];
   next.splice(i, 1);
   set('alternate_greetings', next);
+  // 删除后同步预览索引：预览位在删除位之后时前移一位，避免指向错条目
   if (previewWhich.value === i) previewWhich.value = 'first';
+  else if (typeof previewWhich.value === 'number' && previewWhich.value > i) previewWhich.value = previewWhich.value - 1;
 }
 
 const previewHtml = computed(() => {
@@ -51,7 +53,7 @@ const previewHtml = computed(() => {
   <NTabs type="segment" size="small" default-value="fields">
     <NTab name="fields" tab="字段编辑">
       <NForm label-placement="top" size="small" style="max-width: 860px">
-        <NFormItem label="角色描述（description）——人设核心">
+        <NFormItem label="描述（description）——单人卡人设核心 / 多人卡世界与规则总述（多人卡可留空，成员设定放世界书）">
           <div class="field-block">
             <div class="field-toolbar">
               <TokenBadge :text="String(data.description ?? '')" :warn-at="3000" />

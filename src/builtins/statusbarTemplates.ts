@@ -16,6 +16,8 @@ export interface StatusbarVariable {
   key: string;
   label: string;
   initial: string;
+  /** 变量分组（多人卡按角色分组；'stat' 保留给六维面板的属性序） */
+  group?: string;
 }
 
 export interface StatusbarPayload {
@@ -127,8 +129,10 @@ const radar: StatusbarPayload = {
 .tcs-line span{opacity:.75;}
 .tcs-line b{color:#d6e7ff;font-weight:600;}`,
   js: `(function(){ try{ var v=(typeof getVariables==='function')?(getVariables()||{}):null; if(!v) return;
-  // 用六维数值（0-100）重算雷达多边形顶点
-  var st=[v.stat_str,v.stat_agi,v.stat_con,v.stat_int,v.stat_per,v.stat_cha].map(Number);
+  // 六维键名由插入时按 variables 注入（__TCS_STAT_KEYS__ 占位），改名无需改 js
+  var KEYS=__TCS_STAT_KEYS__;
+  if(KEYS.length!==6) return;
+  var st=KEYS.map(function(k){return Number(v[k]);});
   if(st.some(isNaN)) return;
   var cx=100,cy=100,R=86,pts=[];
   for(var i=0;i<6;i++){var a=-Math.PI/2+i*Math.PI/3;var r=R*Math.max(0.05,Math.min(1,st[i]/100));
@@ -139,12 +143,12 @@ const radar: StatusbarPayload = {
   variables: [
     { key: 'char_name', label: '角色名', initial: '{{char}}' },
     { key: 'radar_points', label: '雷达图顶点（自动）', initial: '100,30 165,65 165,135 100,170 35,135 35,65' },
-    { key: 'stat_str', label: '力量', initial: '60' },
-    { key: 'stat_agi', label: '敏捷', initial: '75' },
-    { key: 'stat_con', label: '体质', initial: '55' },
-    { key: 'stat_int', label: '智力', initial: '80' },
-    { key: 'stat_per', label: '感知', initial: '65' },
-    { key: 'stat_cha', label: '魅力', initial: '90' },
+    { key: 'stat_str', label: '力量', initial: '60', group: 'stat' },
+    { key: 'stat_agi', label: '敏捷', initial: '75', group: 'stat' },
+    { key: 'stat_con', label: '体质', initial: '55', group: 'stat' },
+    { key: 'stat_int', label: '智力', initial: '80', group: 'stat' },
+    { key: 'stat_per', label: '感知', initial: '65', group: 'stat' },
+    { key: 'stat_cha', label: '魅力', initial: '90', group: 'stat' },
     { key: 'level', label: '等级', initial: '5' },
     { key: 'hp', label: 'HP', initial: '42/50' },
     { key: 'mp', label: 'MP', initial: '30/30' },
@@ -281,12 +285,108 @@ const phone: StatusbarPayload = {
   previewMock: { char_name: '苏晚', online: '在线', last_note: '刚刚拍了一张窗外的晚霞……', favor: '12', place: '公司', time: '18:42' },
 };
 
+/* ---------------- 5. 多人群像栏 ---------------- */
+
+const ensemble: StatusbarPayload = {
+  tag: '<EnsembleCast/>',
+  html: `<div class="tcs-ens">
+  <div class="tcs-ens-card">
+    <div class="tcs-ens-top">
+      <span class="tcs-ens-ava">{{getvar::g1_name}}</span>
+      <div class="tcs-ens-id"><b>{{getvar::g1_name}}</b><i>{{getvar::g1_role}}</i></div>
+      <span class="tcs-ens-mood">{{getvar::g1_mood}}</span>
+    </div>
+    <div class="tcs-ens-bar"><i style="width:{{getvar::g1_favor}}%"></i><span>好感 {{getvar::g1_favor}}</span></div>
+    <div class="tcs-ens-note">{{getvar::g1_note}}</div>
+  </div>
+  <div class="tcs-ens-card">
+    <div class="tcs-ens-top">
+      <span class="tcs-ens-ava">{{getvar::g2_name}}</span>
+      <div class="tcs-ens-id"><b>{{getvar::g2_name}}</b><i>{{getvar::g2_role}}</i></div>
+      <span class="tcs-ens-mood">{{getvar::g2_mood}}</span>
+    </div>
+    <div class="tcs-ens-bar"><i style="width:{{getvar::g2_favor}}%"></i><span>好感 {{getvar::g2_favor}}</span></div>
+    <div class="tcs-ens-note">{{getvar::g2_note}}</div>
+  </div>
+  <div class="tcs-ens-card">
+    <div class="tcs-ens-top">
+      <span class="tcs-ens-ava">{{getvar::g3_name}}</span>
+      <div class="tcs-ens-id"><b>{{getvar::g3_name}}</b><i>{{getvar::g3_role}}</i></div>
+      <span class="tcs-ens-mood">{{getvar::g3_mood}}</span>
+    </div>
+    <div class="tcs-ens-bar"><i style="width:{{getvar::g3_favor}}%"></i><span>好感 {{getvar::g3_favor}}</span></div>
+    <div class="tcs-ens-note">{{getvar::g3_note}}</div>
+  </div>
+</div>`,
+  css: `.tcs-ens{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:8px 0 14px;}
+.tcs-ens-card{background:linear-gradient(160deg,rgba(217,70,239,.10),rgba(124,58,237,.04)),#15101d;
+  border:1px solid #3b2a4d;border-radius:12px;padding:12px 14px;color:#e9defc;}
+.tcs-ens-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.tcs-ens-ava{width:36px;height:36px;border-radius:50%;flex:none;
+  background:linear-gradient(135deg,#d946ef,#8b5cf6);display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:15px;color:#fff;}
+.tcs-ens-id{min-width:0;line-height:1.3;}
+.tcs-ens-id b{display:block;font-size:14px;letter-spacing:1px;color:#f3ecff;}
+.tcs-ens-id i{font-style:normal;font-size:11px;color:#b79ae0;}
+.tcs-ens-mood{margin-left:auto;font-size:11px;color:#f0abfc;background:rgba(217,70,239,.12);
+  border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.tcs-ens-bar{position:relative;height:14px;background:#241a30;border-radius:7px;overflow:hidden;margin-bottom:8px;}
+.tcs-ens-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;
+  background:linear-gradient(90deg,#8b5cf6,#d946ef);}
+.tcs-ens-bar span{position:absolute;left:8px;top:0;line-height:14px;font-size:10px;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.6);}
+.tcs-ens-note{font-size:12px;color:#b9a8d6;line-height:1.6;}`,
+  js: `(function(){ try{ var v=(typeof getVariables==='function')?(getVariables()||{}):null; if(!v) return;
+  var el=document.currentScript?document.currentScript.parentElement:null; if(!el) return;
+  function upd(card, nameKey, favKey){
+    if(!card) return;
+    var name=String(v[nameKey]||'');
+    var ava=card.querySelector('.tcs-ens-ava'); if(ava) ava.textContent=(name||'?').slice(0,1);
+    var val=Number(v[favKey]);
+    var bar=card.querySelector('.tcs-ens-bar i');
+    if(bar&&!isNaN(val)) bar.style.width=Math.max(0,Math.min(100,val))+'%';
+  }
+  var cards=el.querySelectorAll('.tcs-ens-card');
+  upd(cards[0],'g1_name','g1_favor');
+  upd(cards[1],'g2_name','g2_favor');
+  upd(cards[2],'g3_name','g3_favor');
+}catch(e){} })();`,
+  variables: [
+    { key: 'g1_name', label: '名称', initial: '林婉', group: '角色A' },
+    { key: 'g1_role', label: '身份', initial: '青梅竹马', group: '角色A' },
+    { key: 'g1_favor', label: '好感 0-100', initial: '35', group: '角色A' },
+    { key: 'g1_mood', label: '当前状态', initial: '口是心非', group: '角色A' },
+    { key: 'g1_note', label: '一句话近况', initial: '占了你旁边的座位装作不经意', group: '角色A' },
+    { key: 'g2_name', label: '名称', initial: '沈青梧', group: '角色B' },
+    { key: 'g2_role', label: '身份', initial: '学姐', group: '角色B' },
+    { key: 'g2_favor', label: '好感 0-100', initial: '60', group: '角色B' },
+    { key: 'g2_mood', label: '当前状态', initial: '意味深长', group: '角色B' },
+    { key: 'g2_note', label: '一句话近况', initial: '在楼梯间堵人问笔记', group: '角色B' },
+    { key: 'g3_name', label: '名称', initial: '阿茶', group: '角色C' },
+    { key: 'g3_role', label: '身份', initial: '后辈', group: '角色C' },
+    { key: 'g3_favor', label: '好感 0-100', initial: '15', group: '角色C' },
+    { key: 'g3_mood', label: '当前状态', initial: '兴致勃勃', group: '角色C' },
+    { key: 'g3_note', label: '一句话近况', initial: '缠着要拜师', group: '角色C' },
+  ],
+  worldinfoEntry: {
+    comment: '群像状态栏规则（蓝灯）',
+    keys: ['群像', '群像栏', 'ensemble'],
+    content: `[群像规则] <EnsembleCast/> 渲染多角色群像栏。每位角色的好感（0-100）与状态随剧情独立推进：出场角色的言行应反映其当前好感与状态；角色互动时注意保持各自的性格与立场差异。改名变量（g1_name/g2_name/g3_name 等）后请同步更新本条目说明。`,
+  },
+  previewMock: {
+    g1_name: '林婉', g1_role: '青梅竹马', g1_favor: '35', g1_mood: '口是心非', g1_note: '占了你旁边的座位装作不经意',
+    g2_name: '沈青梧', g2_role: '学姐', g2_favor: '60', g2_mood: '意味深长', g2_note: '在楼梯间堵人问笔记',
+    g3_name: '阿茶', g3_role: '后辈', g3_favor: '15', g3_mood: '兴致勃勃', g3_note: '缠着要拜师',
+  },
+};
+
 export function builtinStatusbarTemplates(): TemplateRow[] {
   const defs: [string, string, string, StatusbarPayload][] = [
     ['tpl-sb-simple', '简约数值栏', '一条横向状态栏：好感/体力/金钱/地点/时间，最轻量', simple],
     ['tpl-sb-radar', '六维属性图', 'SVG 雷达图 + 数值面板，适合 RPG 属性卡', radar],
     ['tpl-sb-portrait', '立绘卡面', '外链立绘 + 三条属性进度条 + 场景信息', portrait],
     ['tpl-sb-phone', '手机聊天 UI', '仿即时通讯界面顶栏，适合现代恋爱卡', phone],
+    ['tpl-sb-ensemble', '多人群像栏', '按角色分组的群像卡片：每位角色独立好感/状态/近况，适合多人卡', ensemble],
   ];
   return defs.map(([id, name, description, payload]) => ({
     id,

@@ -1,12 +1,25 @@
+# 依赖
 node_modules/
+
+# 构建产物
 dist/
 dist-ssr/
-*.local
-coverage/
 .vite/
-data/
+coverage/
 *.tsbuildinfo
-.DS_Store
-# Tauri
+
+# Tauri 生成物（target/ 构建产物、gen/ ACL schema 自动生成）
 src-tauri/target/
-src-tauri/gen/schemas/
+src-tauri/gen/
+
+# 本地数据与产物
+/data/
+/release/
+/.screenshots/
+
+# 系统与本地覆盖
+.DS_Store
+*.local
+
+# ZCode 工作区
+.zcode/

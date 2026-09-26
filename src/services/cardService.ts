@@ -8,6 +8,7 @@ import {
 } from '@/core/card';
 import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/core/png';
 import { sumTokenStats } from '@/core/stats/tokens';
+import { getSetting, SETTING_KEYS } from './appSettings';
 import type { CardRow, CardVersionRow } from './types';
 
 export interface ImportResult {
@@ -128,6 +129,23 @@ export async function listCards(includeDeleted = false): Promise<CardRow[]> {
   const all = await store.list<CardRow>('cards');
   const filtered = includeDeleted ? all : all.filter((c) => !c.deletedAt);
   return filtered.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** 虚拟滚动启用阈值（ROADMAP P3-4）：超过该张数列表走分页+行虚拟化 */
+export const VIRTUAL_SCROLL_THRESHOLD = 500;
+
+/**
+ * 分页读卡（keyset 游标，只作用于展示路径；导入/去重仍全量）。
+ * 返回按 updatedAt 降序的一页与 nextCursor（null=到底）。
+ */
+export async function listCardsPaged(
+  opts: { cursor?: string; limit?: number; includeDeleted?: boolean } = {},
+): Promise<{ rows: CardRow[]; nextCursor: string | null }> {
+  const store = await getStore();
+  const limit = opts.limit ?? 100;
+  const result = await store.listPage<CardRow>('cards', { cursor: opts.cursor, limit });
+  const rows = result.rows.filter((c) => (opts.includeDeleted ? true : !c.deletedAt)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return { rows, nextCursor: result.nextCursor };
 }
 
 export async function getCard(id: string): Promise<CardRow | undefined> {
@@ -271,10 +289,14 @@ export function cardToJsonText(card: AnyCard): string {
   return JSON.stringify(card, null, 2);
 }
 
-/** 卡导出为 PNG（无底图用占位） */
+/** 卡导出为 PNG（无底图用占位）；未显式指定 dualWrite 时读设置页偏好（默认双写） */
 export async function cardToPngBytes(card: AnyCard, basePng?: Uint8Array | null, opts: { dualWrite?: boolean } = {}): Promise<Uint8Array> {
+  let dualWrite = opts.dualWrite;
+  if (dualWrite === undefined) {
+    dualWrite = await getSetting(SETTING_KEYS.pngDualWrite, true);
+  }
   const base = basePng && basePng.length > 8 ? basePng : makePlaceholderPng(256);
-  return injectCardIntoPng(base, cardToJsonText(card), { dualWrite: opts.dualWrite !== false });
+  return injectCardIntoPng(base, cardToJsonText(card), { dualWrite });
 }
 
 export async function pngToDataUrl(bytes: Uint8Array): Promise<string> {

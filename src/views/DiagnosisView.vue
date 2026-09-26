@@ -2,10 +2,11 @@
 /** 诊断与调整：静态检查（即时）+ 卡医 LLM 诊断（结构化报告）+ 修复建议 → diff → 应用 */
 import { computed, onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem, NInput, NSpin, NModal, NDescriptions, NDescriptionsItem, NProgress, NGrid,
+  NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem, NInput, NSpin, NModal, NDescriptions, NDescriptionsItem, NProgress,
 } from 'naive-ui';
 import { MedicalOutline, ShieldCheckmarkOutline, BuildOutline } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
+import { useAppearance } from '@/stores/appearance';
 import * as cardService from '@/services/cardService';
 import { staticDiagnose, listSkills, runDoctorSkill, applyPatch, type DiagIssue, type DoctorReport, type PatchOp } from '@/services/diagService';
 import type { SkillRow } from '@/services/types';
@@ -13,6 +14,7 @@ import { diffCards } from '@/services/cardService';
 
 const message = useMessage();
 const ws = useWorkspace();
+const appearance = useAppearance();
 
 const cardId = ref<string | null>(null);
 const issues = ref<DiagIssue[]>([]);
@@ -115,18 +117,17 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
       </NButton>
     </NSpace>
 
-    <NGrid v-if="issues.length" :cols="2" :x-gap="14">
-      <NCard size="small" title="静态检查结果">
-        <NSpace vertical :size="6">
-          <div v-for="(i, idx) in issues" :key="idx" class="diag-row">
-            <NTag size="tiny" :bordered="false" :type="severityType[i.severity]">{{ i.severity }}</NTag>
-            <b>{{ i.field }}</b>
-            <span>{{ i.message }}</span>
-            <span v-if="i.suggestion" class="diag-suggestion">→ {{ i.suggestion }}</span>
-          </div>
-        </NSpace>
-      </NCard>
-    </NGrid>
+    <!-- 注意：不能用 NGrid 直接包 NCard——naive-ui NGrid 只渲染 NGi 子元素，其他内容会被静默丢弃 -->
+    <NCard v-if="issues.length" size="small" title="静态检查结果" :style="report || doctorBusy ? 'margin-bottom: 14px' : ''">
+      <NSpace vertical :size="6">
+        <div v-for="(i, idx) in issues" :key="idx" class="diag-row">
+          <NTag size="tiny" :bordered="false" :type="severityType[i.severity]">{{ i.severity }}</NTag>
+          <b>{{ i.field }}</b>
+          <span>{{ i.message }}</span>
+          <span v-if="i.suggestion" class="diag-suggestion">→ {{ i.suggestion }}</span>
+        </div>
+      </NSpace>
+    </NCard>
 
     <NCard v-if="doctorBusy || report" size="small" title="卡医报告" style="margin-top: 14px">
       <NSpin v-if="doctorBusy" size="small" style="width: 100%">
@@ -135,14 +136,14 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
       <template v-else-if="report">
         <NDescriptions :column="2" size="small" bordered style="margin-bottom: 12px">
           <NDescriptionsItem label="总评分">
-            <NProgress type="line" :percentage="report.overall.score" :color="report.overall.score > 70 ? '#4ade80' : report.overall.score > 40 ? '#facc15' : '#f87171'" style="width: 160px" />
+            <NProgress type="line" :percentage="report.overall.score" :color="report.overall.score > 70 ? appearance.statusColors.good : report.overall.score > 40 ? appearance.statusColors.warn : appearance.statusColors.bad" style="width: 160px" />
           </NDescriptionsItem>
           <NDescriptionsItem label="总评">{{ report.overall.summary }}</NDescriptionsItem>
         </NDescriptions>
         <div class="doctor-dims">
           <div v-for="d in report.dimensions" :key="d.name" class="doctor-dim">
             <span class="doctor-dim-name">{{ d.name }}</span>
-            <NProgress type="line" :percentage="d.score * 10" :height="8" :color="d.score >= 7 ? '#4ade80' : d.score >= 4 ? '#facc15' : '#f87171'" />
+            <NProgress type="line" :percentage="d.score * 10" :height="8" :color="d.score >= 7 ? appearance.statusColors.good : d.score >= 4 ? appearance.statusColors.warn : appearance.statusColors.bad" />
             <span class="doctor-dim-comment">{{ d.comment }}</span>
           </div>
         </div>
@@ -192,14 +193,14 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
 </template>
 
 <style scoped>
-.diag-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,.05); flex-wrap: wrap; }
-.diag-suggestion { color: #a78bfa; font-size: 12px; }
+.diag-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--tcs-border, rgba(255,255,255,.05)); flex-wrap: wrap; }
+.diag-suggestion { color: var(--tcs-accent-text, #a78bfa); font-size: 12px; }
 .doctor-stream { white-space: pre-wrap; font-size: 12px; opacity: .7; min-height: 80px; max-height: 200px; overflow: auto; }
 .doctor-dims { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .doctor-dim { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
 .doctor-dim-name { font-weight: 700; }
 .doctor-dim-comment { grid-column: 1 / -1; opacity: .65; }
 .patch-diff { font-size: 12px; max-height: 240px; overflow: auto; }
-.diff-before { color: #f87171; }
-.diff-after { color: #4ade80; }
+.diff-before { color: var(--tcs-bad, #f87171); }
+.diff-after { color: var(--tcs-good, #4ade80); }
 </style>

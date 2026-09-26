@@ -1,15 +1,21 @@
 <script setup lang="ts">
 /**
  * 字段级 AI 按钮：生成 / 优化 / 翻译（提示词来自内置提示词库，可换自定义模板）。
- * 生成 = 按卡片上下文从零写；优化 = 改写当前内容；翻译 = 目标语言。
+ * 生成 = 按卡片上下文从零写（需要模板，内容可为空）；
+ * 优化 = 改写当前内容（模板可选：无模板时把当前内容原文作为提示词直接优化）；
+ * 翻译 = 目标语言。
  */
 import { ref, computed } from 'vue';
 import { NButton, NButtonGroup, NPopselect, NIcon, useMessage } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { SparklesOutline, ColorWandOutline, LanguageOutline } from '@vicons/ionicons5';
 import type { AnyCard } from '@/core/card';
 import { runFieldAi } from '@/services/aiService';
+import { findPrompt as lookupPrompt } from '@/services/promptLookup';
 import type { TemplateRow } from '@/services/types';
 import type { PromptPayload } from '@/builtins/promptTemplates';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   field: string;
@@ -38,9 +44,22 @@ function cardContext(): string {
     .join('\n\n');
 }
 
-function findPrompt(target: string): PromptPayload | null {
+/** 同步查找：仅限调用方显式注入的模板行 */
+function findPromptSync(target: string): PromptPayload | null {
   const row = promptRows.value.find((r) => r.kind === 'prompt' && (r.payload as PromptPayload).target === target);
   return row ? (row.payload as PromptPayload) : null;
+}
+
+/** 三级查找：注入的模板行 → 内置/自定义提示词库 → description 字段兜底 */
+async function findPrompt(target: string, fallbackTarget?: string): Promise<PromptPayload | null> {
+  const direct = findPromptSync(target);
+  if (direct) return direct;
+  const looked = await lookupPrompt(target).catch(() => null);
+  if (looked) return looked;
+  if (fallbackTarget && fallbackTarget !== target) {
+    return (await lookupPrompt(fallbackTarget).catch(() => null)) ?? findPromptSync(fallbackTarget);
+  }
+  return null;
 }
 
 function fill(template: string): string {
@@ -56,9 +75,19 @@ function fill(template: string): string {
 async function run(mode: 'generate' | 'optimize' | 'translate') {
   if (busy.value) return;
   const target = mode === 'translate' ? 'field:*.translate' : `field:${props.field}.${mode}`;
-  const prompt = findPrompt(target) ?? findPrompt(mode === 'translate' ? 'field:*.translate' : `field:description.${mode}`);
-  if (!prompt) {
-    message.error('未找到对应提示词模板');
+  const fallback = mode === 'translate' ? 'field:*.translate' : `field:description.${mode}`;
+  const prompt = await findPrompt(target, fallback);
+  let systemPrompt: string;
+  let userPrompt: string;
+  if (prompt) {
+    systemPrompt = prompt.system;
+    userPrompt = fill(prompt.userTemplate);
+  } else if (mode === 'optimize') {
+    // 优化允许无模板：人工填写的内容本身就是提示词
+    systemPrompt = `你是资深 SillyTavern 角色卡作家。用户会给出一段角色卡内容，直接优化它：保持原意与信息不丢失，提升具体性与可演绎性，用事件与细节代替空泛形容词；保留 {{user}}/{{char}} 宏与 HTML 标签；保持原文语言；直接输出优化后的正文，不要任何解释。`;
+    userPrompt = props.modelValue;
+  } else {
+    message.error(`未找到「${mode === 'generate' ? 'AI 生成' : '翻译'}」模板（field:${props.field}.${mode}），可在模板中心-提示词库检查`);
     return;
   }
   busy.value = mode;
@@ -66,8 +95,8 @@ async function run(mode: 'generate' | 'optimize' | 'translate') {
   try {
     const out = await runFieldAi({
       feature: `${props.field}:${mode}`,
-      systemPrompt: prompt.system,
-      userPrompt: fill(prompt.userTemplate),
+      systemPrompt,
+      userPrompt,
       onDelta: (_d, full) => {
         streaming.value = full;
       },
@@ -95,16 +124,16 @@ const langOptions = ['English', '简体中文', '繁體中文', '日本語', '�
     <NButtonGroup size="tiny">
       <NButton size="tiny" secondary :loading="busy === 'generate'" :disabled="!!busy" @click="run('generate')">
         <template #icon><NIcon><SparklesOutline /></NIcon></template>
-        AI 生成
+        {{ t('common.aiGenerate') }}
       </NButton>
       <NButton size="tiny" secondary :loading="busy === 'optimize'" :disabled="!!busy || !modelValue" @click="run('optimize')">
         <template #icon><NIcon><ColorWandOutline /></NIcon></template>
-        优化
+        {{ t('common.optimize') }}
       </NButton>
       <NPopselect v-model:value="targetLang" :options="langOptions.map((l) => ({ label: l, value: l }))" trigger="click" @update:value="run('translate')">
         <NButton size="tiny" secondary :loading="busy === 'translate'" :disabled="!!busy || !modelValue">
           <template #icon><NIcon><LanguageOutline /></NIcon></template>
-          翻译
+          {{ t('common.translate') }}
         </NButton>
       </NPopselect>
     </NButtonGroup>

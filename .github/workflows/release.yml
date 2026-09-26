@@ -1,0 +1,46 @@
+# 发布流水线：打 tag v* 触发 Windows 构建（tauri-action），产物进草稿 release + workflow artifact。
+# 不自动发正式 release：人工检查草稿后发布。迭代六 C1。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Tauri build (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'v__VERSION__'
+          releaseBody: '请在Assets下载对应安装包，校验无误后手动发布本 Release。'
+          releaseDraft: true
+          prerelease: false
+          args: '--release'
+      # 草稿 release 之外再收一份 workflow artifact（collect-release.mjs 只做产物收集，不触发构建）
+      - name: Collect artifacts
+        run: node scripts/collect-release.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundles
+          path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+          if-no-files-found: warn

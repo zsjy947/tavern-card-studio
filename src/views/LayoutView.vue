@@ -19,6 +19,7 @@ import { THEMES } from '@/core/theme';
 import { isTauri } from '@/db/tauri';
 import { consumeDegradedNotice } from '@/db';
 import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
+import { registerShortcut, unregisterShortcut, installShortcutLayer } from '@/composables/useShortcuts';
 import CommandPalette from '@/components/CommandPalette.vue';
 
 const route = useRoute();
@@ -88,14 +89,21 @@ function onThemeSelect(key: string | number) {
   void appearance.setTheme(String(key));
 }
 
-/* ---------------- 命令面板（Ctrl+K） ---------------- */
+/* ---------------- 命令面板（Ctrl+K，注册表统一管理） ---------------- */
+
+const paletteToggle = () => {
+  paletteShow.value = !paletteShow.value;
+};
+registerShortcut({ id: 'global:ctrl-k', combo: 'Ctrl+K', scope: 'global', description: '打开/关闭命令面板', handler: paletteToggle });
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
-    paletteShow.value = !paletteShow.value;
+    paletteToggle();
   }
 }
+
+const uninstallShortcuts = installShortcutLayer();
 
 onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown);
@@ -136,6 +144,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown);
+  uninstallShortcuts();
+  unregisterShortcut('global:ctrl-k');
   for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
   unregisterCommand('nav:/compare');
   unregisterCommand('palette:new-card');

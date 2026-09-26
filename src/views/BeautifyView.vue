@@ -10,7 +10,7 @@ import {
   NSpace, NButton, NSelect, NCard, NInput, NTag, useMessage, NIcon, NGrid, NGridItem, NAlert, NText,
   NRadioButton, NRadioGroup, NSpin, NPopconfirm, NEmpty,
 } from 'naive-ui';
-import { ColorWandOutline, ImageOutline, AddOutline, TrashOutline, SparklesOutline, RefreshOutline, SaveOutline } from '@vicons/ionicons5';
+import { ColorWandOutline, ImageOutline, AddOutline, TrashOutline, SparklesOutline, RefreshOutline, SaveOutline, LocateOutline } from '@vicons/ionicons5';
 import { listTemplates, saveTemplate } from '@/services/templateService';
 import type { TemplateRow } from '@/services/types';
 import type { StatusbarPayload } from '@/builtins/statusbarTemplates';
@@ -311,6 +311,7 @@ async function applyAi() {
   const row = await cardService.getCard(chosenCard.value.id);
   if (!row) return;
   let next: AnyCard = JSON.parse(JSON.stringify(row.card)) as AnyCard;
+  const finalHtml = composeFinalHtml();
 
   if (aiMode.value === 'mvu') {
     // 反向创建/补全 MVU：卡内没有套装时从变量清单构建；已有则只补状态栏渲染正则
@@ -319,9 +320,9 @@ async function applyAi() {
       next = applyMvuToCard(next, groups as never, buildZodCode(groups as never), { ...MVU_DEFAULT_CONFIG });
       message.info('已从变量清单反向创建 MVU 套装');
     }
-    next = applyAiStatusbarArtifacts(next, buildMvuStatusbarArtifacts(aiHtml.value));
+    next = applyAiStatusbarArtifacts(next, buildMvuStatusbarArtifacts(finalHtml));
   } else {
-    next = applyAiStatusbarArtifacts(next, buildTextStatusbarArtifacts(aiHtml.value));
+    next = applyAiStatusbarArtifacts(next, buildTextStatusbarArtifacts(finalHtml));
   }
 
   await cardService.saveCard(row.id, next, { note: `美化：AI 生成状态栏（${aiMode.value === 'mvu' ? 'MVU' : '纯文本'}）`, keepCover: true, forceSnapshot: true });
@@ -335,7 +336,7 @@ async function saveAsTemplate() {
   const name = `AI 状态栏 · ${SB_STYLE_OPTIONS.find((s) => s.value === aiStyle.value)?.label ?? ''}（${new Date().toLocaleDateString()}）`;
   const payload: StatusbarPayload = {
     tag: '<AiStatusbar/>',
-    html: aiHtml.value,
+    html: composeFinalHtml(),
     css: '',
     js: '',
     variables: aiVarList.value.map((v) => ({ key: `${v.group}.${v.field}`, label: v.field, initial: v.default })),
@@ -354,6 +355,94 @@ function varListToMvuGroups(list: StatusbarVarPath[]) {
     map.get(g)!.push({ name: v.field, type: v.type, defaultValue: v.default, min: null, max: null, clamp: false, enumValues: '', recordFields: '', description: '' });
   }
   return [...map.entries()].map(([name, fields]) => ({ name, fields }));
+}
+
+/* ---------------- 元素点选定向改（P2-2） ---------------- */
+
+import { locateRule } from '@/core/css/locate';
+
+const picking = ref(false);
+const aiPreviewRef = ref<InstanceType<typeof HtmlPreview> | null>(null);
+const located = ref<{ selector: string; line: number; suggestion?: string } | null>(null);
+
+/** 从 AI 生成的完整文档中抽取全部 <style> 内容（编辑态的唯一样式源） */
+function extractCss(html: string): string {
+  let out = '';
+  for (const m of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) out += `${m[1]}\n`;
+  return out;
+}
+
+/** 剥离 <style> 块（预览时样式统一走 css prop，避免双源） */
+function stripStyles(html: string): string {
+  return html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+}
+
+const aiPreviewHtml = computed(() => stripStyles(aiHtml.value));
+
+/** 编辑态 CSS：生成完成时从文档抽取；应用时回填进文档 */
+const previewCss = ref('');
+const previewCssDraft = ref('');
+const cssSyncTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+watch(previewCssDraft, (v) => {
+  if (cssSyncTimer.value) clearTimeout(cssSyncTimer.value);
+  cssSyncTimer.value = setTimeout(() => {
+    previewCss.value = v;
+  }, 500);
+});
+
+function togglePicker() {
+  picking.value = !picking.value;
+  if (picking.value) {
+    located.value = null;
+    // 进入点选前确保编辑态 CSS 已初始化
+    if (!previewCss.value) {
+      previewCss.value = extractCss(aiHtml.value);
+      previewCssDraft.value = previewCss.value;
+    }
+    aiPreviewRef.value?.startPicker();
+  } else {
+    aiPreviewRef.value?.stopPicker();
+  }
+}
+
+function onPick(p: { selector: string | null; tag: string }) {
+  if (!p.selector) {
+    located.value = { selector: p.tag || '(未知元素)', line: 0 };
+    return;
+  }
+  const r = locateRule(previewCss.value, p.selector);
+  if (r.block) {
+    const line = previewCss.value.slice(0, r.block.start).split('\n').length;
+    located.value = { selector: p.selector, line };
+  } else {
+    located.value = { selector: p.selector, line: 0, suggestion: r.suggestion ?? undefined };
+  }
+}
+
+function appendSuggestion() {
+  if (!located.value?.suggestion) return;
+  previewCss.value = `${previewCss.value}\n${located.value.suggestion}`;
+  previewCssDraft.value = previewCss.value;
+  // 追加后重新定位到新规则
+  const r = locateRule(previewCss.value, located.value.selector);
+  if (r.block) located.value = { selector: located.value.selector, line: previewCss.value.slice(0, r.block.start).split('\n').length };
+}
+
+watch(aiHtml, (v) => {
+  if (v) {
+    previewCss.value = extractCss(v);
+    previewCssDraft.value = previewCss.value;
+    located.value = null;
+    picking.value = false;
+  }
+});
+
+// 应用/沉淀前把编辑态 CSS 回填进文档（替换原 style 块或追加）
+function composeFinalHtml(): string {
+  if (!previewCss.value.trim()) return aiHtml.value;
+  const stripped = stripStyles(aiHtml.value);
+  return stripped.replace(/<\/head>/i, `<style>${previewCss.value}</style>\n</head>`);
 }
 
 watch(mode, () => {
@@ -514,7 +603,34 @@ watch(mode, () => {
         <NCard v-else size="small" title="第 3 步 · 预览与应用">
           <NSpace vertical :size="10">
             <NAlert v-if="aiNote" type="warning" :bordered="false" style="font-size: 12px">{{ aiNote }}</NAlert>
-            <HtmlPreview :html="aiHtml" allow-scripts height="420px" />
+            <NSpace :size="8" align="center">
+              <NButton size="small" :type="picking ? 'primary' : 'default'" @click="togglePicker">
+                <template #icon><NIcon><LocateOutline /></NIcon></template>
+                {{ picking ? '退出点选（Esc）' : '元素点选定向改' }}
+              </NButton>
+              <NText v-if="picking" depth="3" style="font-size: 12px">在预览中点击元素 → 自动定位到对应 CSS 规则块</NText>
+            </NSpace>
+            <NAlert v-if="located" :type="located.line ? 'success' : 'warning'" :bordered="false" style="font-size: 12px">
+              <template v-if="located.line">
+                已定位 <NTag size="tiny" :bordered="false">{{ located.selector }}</NTag> · 第 {{ located.line }} 行（CSS 编辑器已滚动高亮）
+              </template>
+              <template v-else>
+                样式中没有 <NTag size="tiny" :bordered="false">{{ located.selector }}</NTag> 的规则块——样式可能来自类组合。
+                <NButton size="tiny" style="margin-left: 6px" @click="appendSuggestion">在样式末尾追加覆盖规则</NButton>
+              </template>
+            </NAlert>
+            <HtmlPreview
+              ref="aiPreviewRef"
+              :html="aiPreviewHtml"
+              :css="previewCss"
+              :enable-picker="picking"
+              height="420px"
+              @pick="onPick"
+              @picker-esc="picking = false"
+            />
+            <NCard size="small" title="CSS（点选定向改 / 实时重渲）">
+              <CodeEditor v-model="previewCssDraft" language="text" height="200px" :highlight-line="located?.line ?? 0" />
+            </NCard>
             <NSpace>
               <NButton @click="aiStep = 1">返回清单</NButton>
               <NButton :loading="aiGenerating" @click="genHtml"><template #icon><NIcon><RefreshOutline /></NIcon></template>重新生成</NButton>

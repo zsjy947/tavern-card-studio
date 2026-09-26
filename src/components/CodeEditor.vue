@@ -17,6 +17,8 @@ const props = withDefaults(
     language?: 'javascript' | 'html' | 'text';
     readonly?: boolean;
     height?: string;
+    /** 外部定位：滚动并选中指定行（1 基，0/undefined = 不动作）——元素点选定向改用 */
+    highlightLine?: number;
   }>(),
   { language: 'text', height: '260px' },
 );
@@ -68,6 +70,18 @@ watch(
     if (view && v !== view.state.doc.toString()) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v ?? '' } });
     }
+  },
+);
+
+// 外部定位：滚动到指定行并置光标（P2-2 点选定向改）
+watch(
+  () => props.highlightLine,
+  (line) => {
+    if (!view || !line) return;
+    const l = Math.max(1, Math.min(line, view.state.doc.lines));
+    const info = view.state.doc.line(l);
+    view.dispatch({ selection: { anchor: info.from }, scrollIntoView: true });
+    view.focus();
   },
 );
 

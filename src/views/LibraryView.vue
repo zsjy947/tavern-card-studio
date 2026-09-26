@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 卡库：搜索/标签筛选/分类目录/批量导出/回收站/两卡对比入口 */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   NSpace, NInput, NButton, NTag, NEmpty, NSpin, NDropdown, NPopconfirm,
@@ -78,6 +78,61 @@ async function refresh() {
 }
 
 onMounted(refresh);
+
+/* ---------------- 快捷键（P2-4）：F2 重命名 / Delete 回收 / ↑↓ 导航 / Enter 预览 ---------------- */
+
+import { registerShortcut, unregisterShortcut } from '@/composables/useShortcuts';
+
+/** 键盘导航游标（filtered 下标），↑↓ 移动、Enter 进预览 */
+const navIndex = ref(-1);
+
+function navMove(delta: number) {
+  if (!filtered.value.length) return;
+  navIndex.value = Math.max(0, Math.min(filtered.value.length - 1, navIndex.value + delta));
+  selected.value = new Set([filtered.value[navIndex.value]!.id]);
+}
+
+function navTarget(): CardRow | null {
+  if (navIndex.value >= 0 && filtered.value[navIndex.value]) return filtered.value[navIndex.value]!;
+  const first = selected.value.size === 1 ? filtered.value.find((c) => selected.value.has(c.id)) : undefined;
+  return first ?? filtered.value[0] ?? null;
+}
+
+async function renameCard(c: CardRow) {
+  const name = window.prompt('重命名卡：', c.name);
+  if (!name?.trim() || name.trim() === c.name) return;
+  const row = await cardService.getCard(c.id);
+  if (!row) return;
+  const card = JSON.parse(JSON.stringify(row.card)) as NonNullable<typeof row.card>;
+  (card.data as Record<string, unknown>).name = name.trim();
+  await cardService.saveCard(c.id, card, { note: `重命名为「${name.trim()}」` });
+  await refresh();
+  message.success(`已重命名为「${name.trim()}」`);
+}
+
+onMounted(() => {
+  registerShortcut({ id: 'library:f2', combo: 'F2', scope: 'library', description: '重命名选中的卡', handler: () => {
+    const c = navTarget();
+    if (c) void renameCard(c);
+  } });
+  registerShortcut({ id: 'library:delete', combo: 'Delete', scope: 'library', description: '把选中的卡移入回收站', handler: () => {
+    const c = navTarget();
+    if (c) {
+      navIndex.value = -1;
+      void trash(c.id);
+    }
+  } });
+  registerShortcut({ id: 'library:up', combo: 'ArrowUp', scope: 'library', description: '向上选择卡', handler: () => navMove(-1) });
+  registerShortcut({ id: 'library:down', combo: 'ArrowDown', scope: 'library', description: '向下选择卡', handler: () => navMove(1) });
+  registerShortcut({ id: 'library:enter', combo: 'Enter', scope: 'library', description: '打开选中卡的预览', handler: () => {
+    const c = navTarget();
+    if (c) void router.push(`/preview/${c.id}`);
+  } });
+});
+
+onBeforeUnmount(() => {
+  for (const id of ['library:f2', 'library:delete', 'library:up', 'library:down', 'library:enter']) unregisterShortcut(id);
+});
 
 async function addCategory() {
   const name = window.prompt('新分类名称：');
@@ -299,7 +354,7 @@ async function restore(c: CardRow) {
 </script>
 
 <template>
-  <div class="lib-layout">
+  <div class="lib-layout" data-shortcut-scope="library">
     <!-- 左侧分类树 -->
     <div class="lib-side">
       <div class="lib-side-head">
@@ -350,8 +405,9 @@ async function restore(c: CardRow) {
       <NSpin :show="ws.cardsLoading">
         <NEmpty v-if="!filtered.length" description="没有卡片，导入或新建一张开始" style="padding: 60px 0" />
         <div v-else class="lib-grid">
-          <div v-for="c in filtered" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
-            <div class="lib-card-main" @click="router.push(`/editor/${c.id}`)">
+          <div v-for="(c, ci) in filtered" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
+            <!-- 单击选中、双击进只读预览（P2-1）；编辑入口保留在按钮/菜单 -->
+            <div class="lib-card-main" @click.stop="toggleSelect(c.id)" @dblclick="router.push(`/preview/${c.id}`)">
               <CardCover :src="c.cover" :name="c.name" :size="56" />
               <div class="lib-card-info">
                 <div class="lib-card-name">{{ c.name }}</div>

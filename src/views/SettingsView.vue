@@ -12,6 +12,7 @@ import { getStore } from '@/db';
 import { isTauri } from '@/db/tauri';
 import { getExportDir, setExportDir, pickExportDir, openExportDir } from '@/services/exportService';
 import { renderExportFilename } from '@/core/card/exportName';
+import { listShortcuts, shortcutVersion } from '@/composables/useShortcuts';
 import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
 import AppearanceSettings from '@/components/AppearanceSettings.vue';
@@ -34,6 +35,12 @@ const templatePreview = computed(() => renderExportFilename(exportTemplate.value
 async function persistExportTemplate(v: string) {
   await setSetting(SETTING_KEYS.exportFilenameTemplate, v);
 }
+
+/* 快捷键注册表（只读展示；数据来自 useShortcuts 注册表，注册变化自动刷新） */
+const shortcuts = computed(() => {
+  void shortcutVersion.value;
+  return listShortcuts();
+});
 
 onMounted(async () => {
   // 降级提示已上移 LayoutView 全局通知（D3）；此处保留静态存储详情
@@ -178,6 +185,22 @@ async function doImport(wipe: boolean) {
         </NFormItem>
       </NCard>
 
+      <NCard size="small" title="快捷键">
+        <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
+          注册表驱动（与命令面板同源）；输入框聚焦时纯按键不触发，避免误触。
+        </NText>
+        <table class="shortcut-table">
+          <thead><tr><th>按键</th><th>范围</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr v-for="s in shortcuts" :key="s.id">
+              <td><NTag size="tiny" :bordered="false">{{ s.comboNormalized }}</NTag></td>
+              <td style="font-size: 12px; opacity: .75">{{ s.scopeLabel }}</td>
+              <td style="font-size: 12px">{{ s.description }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </NCard>
+
       <NCard size="small" title="关于">
         <NText depth="3" style="font-size: 13px; line-height: 1.8">
           <p><b>TavernCard Studio</b> v0.1.0 —— 本地桌面端 SillyTavern 角色卡工作站</p>
@@ -189,3 +212,9 @@ async function doImport(wipe: boolean) {
     </NSpace>
   </div>
 </template>
+
+<style scoped>
+.shortcut-table { width: 100%; border-collapse: collapse; }
+.shortcut-table th { text-align: left; font-size: 12px; opacity: .65; padding: 3px 8px 6px; }
+.shortcut-table td { padding: 3px 8px; border-top: 1px dashed var(--tcs-border, rgba(255,255,255,.08)); }
+</style>

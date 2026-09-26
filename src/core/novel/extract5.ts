@@ -317,13 +317,17 @@ export function chunkNovel(text: string, opts: Partial<Pick<ExtractConfig, 'chun
 
   if (strategy === 'auto' || strategy === 'chapter') {
     const chapters = splitByChapters(text);
-    if (chapters.length >= 3 || strategy === 'chapter') {
+    if (chapters.length >= 3 || (strategy === 'chapter' && chapters.length > 0)) {
       const chunks: NovelChunk[] = [];
       for (let i = 0; i < chapters.length; i += perChunk) {
         const slice = chapters.slice(i, i + perChunk);
         chunks.push({ text: slice.join('\n\n'), strategy: 'chapter', range: `${slice[0]!.title} ~ ${slice[slice.length - 1]!.title}` });
       }
       return { strategy: 'chapter', chunks, totalChapters: chapters.length, fallback: false };
+    }
+    // 强制章节模式但章头不足：整篇作为一片（不产出空切片）
+    if (strategy === 'chapter' && text.trim()) {
+      return { strategy: 'chapter', chunks: [{ text, strategy: 'chapter', range: '' }], totalChapters: chapters.length, fallback: false };
     }
   }
 

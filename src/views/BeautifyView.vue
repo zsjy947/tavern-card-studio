@@ -364,6 +364,11 @@ import { locateRule } from '@/core/css/locate';
 const picking = ref(false);
 const aiPreviewRef = ref<InstanceType<typeof HtmlPreview> | null>(null);
 const located = ref<{ selector: string; line: number; suggestion?: string } | null>(null);
+/**
+ * picker 脚本随预览文档一起注入（enablePicker 常开），
+ * togglePicker 只发 START/STOP 消息——否则文档变化触发 iframe 重挂后 START 发进旧窗口失效。
+ */
+const pickerArmed = ref(false);
 
 /** 从 AI 生成的完整文档中抽取全部 <style> 内容（编辑态的唯一样式源） */
 function extractCss(html: string): string {
@@ -389,6 +394,30 @@ watch(previewCssDraft, (v) => {
   cssSyncTimer.value = setTimeout(() => {
     previewCss.value = v;
   }, 500);
+});
+
+watch(aiHtml, (v) => {
+  if (v) {
+    previewCss.value = extractCss(v);
+    previewCssDraft.value = previewCss.value;
+    located.value = null;
+    picking.value = false;
+    // iframe 可能重挂（文档变化 key++）：挂载后若点选态仍开启，重新武装
+    if (pickerArmed.value && picking.value) {
+      setTimeout(() => aiPreviewRef.value?.startPicker(), 100);
+    }
+  }
+});
+
+// 进入第 3 步即装配 picker 脚本（与文档一起注入）；togglePicker 只发 START/STOP
+watch(aiStep, (s) => {
+  if (s === 2) {
+    pickerArmed.value = true;
+    if (picking.value) setTimeout(() => aiPreviewRef.value?.startPicker(), 100);
+  } else {
+    pickerArmed.value = false;
+    picking.value = false;
+  }
 });
 
 function togglePicker() {
@@ -429,20 +458,14 @@ function appendSuggestion() {
   if (r.block) located.value = { selector: located.value.selector, line: previewCss.value.slice(0, r.block.start).split('\n').length };
 }
 
-watch(aiHtml, (v) => {
-  if (v) {
-    previewCss.value = extractCss(v);
-    previewCssDraft.value = previewCss.value;
-    located.value = null;
-    picking.value = false;
-  }
-});
-
-// 应用/沉淀前把编辑态 CSS 回填进文档（替换原 style 块或追加）
+// 应用/沉淀前把编辑态 CSS 回填进文档（替换原 style 块或追加；无 </head> 时兜底 <body> 前 / 文档首）
 function composeFinalHtml(): string {
   if (!previewCss.value.trim()) return aiHtml.value;
+  const styleTag = `<style>${previewCss.value}</style>\n`;
   const stripped = stripStyles(aiHtml.value);
-  return stripped.replace(/<\/head>/i, `<style>${previewCss.value}</style>\n</head>`);
+  if (/<\/head>/i.test(stripped)) return stripped.replace(/<\/head>/i, `${styleTag}</head>`);
+  if (/<body[^>]*>/i.test(stripped)) return stripped.replace(/<body[^>]*>/i, (m) => `${m}\n${styleTag}`);
+  return `${styleTag}${stripped}`;
 }
 
 watch(mode, () => {
@@ -623,7 +646,7 @@ watch(mode, () => {
               ref="aiPreviewRef"
               :html="aiPreviewHtml"
               :css="previewCss"
-              :enable-picker="picking"
+              :enable-picker="pickerArmed"
               height="420px"
               @pick="onPick"
               @picker-esc="picking = false"

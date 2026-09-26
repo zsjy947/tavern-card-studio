@@ -97,7 +97,7 @@ defineExpose({ startPicker, stopPicker });
         class="html-preview-frame"
         :class="{ 'html-preview-picking': enablePicker }"
         :style="{ height: height ?? '320px' }"
-        :sandbox="allowScripts || enablePicker ? 'allow-same-origin allow-scripts' : 'allow-same-origin'"
+        :sandbox="allowScripts || enablePicker ? 'allow-scripts' : 'allow-same-origin'"
         :srcdoc="doc"
       />
     </div>

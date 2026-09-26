@@ -184,3 +184,28 @@ describe('mvu suite 13 件套', () => {
     expect(String(cdata.first_mes)).not.toContain('StatusPlaceHolderImpl');
   });
 });
+
+describe('审查修复回归', () => {
+  it('lint 捕获路径冲突与非法数字默认值', () => {
+    const groups = [
+      newMvuGroup('G', [newMvuField({ name: 'A', type: 'string' }), newMvuField({ name: 'A.b', type: 'number', defaultValue: 'abc' })]),
+    ];
+    const issues = mvuCheckIssues(groups, buildZodCode(groups));
+    expect(issues.some((i) => i.includes('路径冲突'))).toBe(true);
+    expect(issues.some((i) => i.includes('不是合法数字'))).toBe(true);
+    // 生成端已收敛：非法数字默认值按 0 产出（路径冲突时叶子被分支覆盖，b 字段保留）
+    expect(buildZodCode(groups)).toContain('prefault(0)');
+  });
+
+  it('Zod 字符串/枚举默认值转义单引号与换行', () => {
+    const groups = [
+      newMvuGroup('主角', [
+        newMvuField({ name: '口头禅', type: 'string', defaultValue: "别信他's 说'的话" }),
+        newMvuField({ name: '境界', type: 'enum', defaultValue: '凡\n人', enumValues: '凡人,筑基' }),
+      ]),
+    ];
+    const code = buildZodCode(groups);
+    expect(code).toContain("别信他\\'s 说\\'的话");
+    expect(code).toContain('凡 人');
+  });
+});

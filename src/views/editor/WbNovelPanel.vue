@@ -17,7 +17,7 @@ import {
   type ExtractConfig,
   type ExtractType,
 } from '@/core/novel/extract5';
-import { initExtractState, extractOne, selfCheckType, extractProgress, type ExtractState } from '@/services/novelExtractService';
+import { initExtractState, extractOne, selfCheckType, type ExtractState } from '@/services/novelExtractService';
 import * as aiService from '@/services/aiService';
 import { pickFiles } from '@/utils/file';
 import WbReviewTable, { type WbReviewRow } from './WbReviewTable.vue';
@@ -57,6 +57,11 @@ const state = ref<ExtractState | null>(null);
 const progressNote = ref('');
 let abort: AbortController | null = null;
 
+/** 分片签名：原文长度/切片参数变化即重新分片（断点续跑只在签名一致时保留进度） */
+const chunkSig = computed(() =>
+  JSON.stringify([novelText.value.length, config.chunkStrategy, config.chaptersPerChunk, config.wordsPerChunk]),
+);
+
 const chunkEstimate = computed(() => {
   if (!novelText.value.trim()) return null;
   const s = initExtractState({ ...config }, novelText.value);
@@ -68,7 +73,19 @@ const protagonistHint = computed(() =>
   config.userMode === 'replace' ? `主角将由 ${USER_MACRO} 替代，不单独成条目` : '主角将作为 NPC 完整成条目',
 );
 
-const progress = computed(() => (state.value ? extractProgress(state.value) : { done: 0, total: 0 }));
+/** 计划内分片数（「只跑前 N 片」），进度分母用它而非全量分片 */
+const plannedChunks = computed(() => {
+  if (!state.value) return 0;
+  const total = state.value.chunks.length;
+  return onlyFirstNChunks.value > 0 ? Math.min(onlyFirstNChunks.value, total) : total;
+});
+
+const progress = computed(() => {
+  if (!state.value) return { done: 0, total: 0 };
+  const types = state.value.config.selectedTypes;
+  const done = state.value.doneKeys.filter((k) => Number(k.split(':')[0]) < plannedChunks.value).length;
+  return { done, total: plannedChunks.value * types.length };
+});
 
 const typeStatus = computed(() => {
   if (!state.value) return [] as { key: ExtractType; label: string; done: boolean; checked: boolean }[];
@@ -89,8 +106,11 @@ async function run() {
   abort = new AbortController();
   progressNote.value = '';
   try {
-    if (!state.value || state.value.config.novelName !== config.novelName || state.value.chunks.length === 0) {
+    const sig = chunkSig.value;
+    // 断点续跑仅在原文与切片参数未变时保留进度；否则重新分片并清空已完成键
+    if (!state.value || (state.value as ExtractState & { sig?: string }).sig !== sig) {
       state.value = initExtractState({ ...config }, novelText.value);
+      (state.value as ExtractState & { sig?: string }).sig = sig;
     }
     const st = state.value;
     st.config = { ...config };
@@ -167,7 +187,7 @@ async function regenType(type: ExtractType) {
     buildReview();
     message.success('该类已重新提取');
   } catch (e) {
-    message.error(`重提取失败：${(e as Error).message}`);
+    if (!abort.signal.aborted) message.error(`重提取失败：${(e as Error).message}`);
   } finally {
     running.value = false;
     progressNote.value = '';

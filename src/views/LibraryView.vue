@@ -469,7 +469,7 @@ async function restore(c: CardRow) {
           </div>
         </div>
         <div v-else class="lib-grid">
-          <div v-for="row in cardRows" :key="`r-${cardRows.indexOf(row)}`" class="lib-row" :style="{ '--cols': cols }">
+          <div v-for="(row, ri) in cardRows" :key="`r-${ri}`" class="lib-row" :style="{ '--cols': cols }">
             <div v-for="c in row" :key="c.id" class="lib-card" :class="{ 'lib-card-selected': selected.has(c.id) }">
               <!-- 单击选中、双击进只读预览（P2-1）；编辑入口保留在按钮/菜单 -->
               <div class="lib-card-main" @click.stop="toggleSelect(c.id)" @dblclick="router.push(`/preview/${c.id}`)">

@@ -90,6 +90,7 @@ export async function runWorldbookBatchGeneration(opts: BatchRunOptions): Promis
     const user = buildBatchUserPrompt(params, [...names], batchIndex, tier.max, opts.referenceNovel);
     let batchEntries: RawWbEntry[] = [];
     let note: string | undefined;
+    let retriesUsed = 0;
 
     // 批次级共享重试预算：单请求退避耗尽后仍失败 → 等 15s 重试本批
     for (let attempt = 0; ; attempt++) {
@@ -108,11 +109,13 @@ export async function runWorldbookBatchGeneration(opts: BatchRunOptions): Promis
       } catch (e) {
         const retryable = e instanceof LlmError ? e.retryable : true;
         if (checkAbort()) break;
-        if (attempt < budget && retryable) {
+        if (retriesUsed < budget && retryable) {
+          retriesUsed++;
           budget--;
-          note = `批次失败，${15}s 后重试本批（剩余预算 ${budget}）`;
-          opts.onBatch?.({ batchIndex, totalBatches: total, batchEntries: [], totalEntries: entries.length, done: false, note });
-          await sleep(15_000);
+          note = `批次失败，15s 后重试本批（剩余预算 ${budget}）`;
+          opts.onBatch?.({ batchIndex: batchIndex + 1, totalBatches: total, batchEntries: [], totalEntries: entries.length, done: false, note });
+          await abortableSleep(15_000, opts.signal);
+          if (checkAbort()) break;
           continue;
         }
         throw e;
@@ -128,15 +131,25 @@ export async function runWorldbookBatchGeneration(opts: BatchRunOptions): Promis
       break;
     }
     // 批间隔（缓解 RPM 限制；可被 abort 打断）
-    await sleep(2000);
+    await abortableSleep(2000, opts.signal);
     if (checkAbort()) break;
   }
 
   return { entries, earlyComplete, cancelled };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+/** 可被 abort 打断的 sleep（终止不再滞留 15s） */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 export { WB_BATCH_SIZE, WB_TIERS };

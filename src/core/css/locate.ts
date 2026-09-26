@@ -67,6 +67,9 @@ export function parseCssRules(css: string): CssRuleBlock[] {
       boundary = i + 1;
     }
   }
+  // EOF 残尾：未闭合的最后一块（`selector{body` 到文件尾）同样产出，避免「存在却定位不到」
+  const last = stack[stack.length - 1];
+  if (last) pushBlock(last.selStart, last.braceIdx, last.bodyStart, css.length, css.length);
   return blocks;
 }
 

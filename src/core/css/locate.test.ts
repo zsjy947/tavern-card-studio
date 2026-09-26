@@ -76,3 +76,14 @@ describe('pickerScript', () => {
     expect(s).not.toContain('=>'); // ES5 风格 function，规避老内核（非硬约束，作冒烟检查）
   });
 });
+
+describe('审查修复回归', () => {
+  it('EOF 未闭合的最后一块仍可定位', () => {
+    const css = '.ok { color: red; }\n.tail { color: blue;';
+    const blocks = parseCssRules(css);
+    expect(blocks.some((b) => b.selector === '.tail')).toBe(true);
+    const r = locateRule(css, '.tail');
+    expect(r.block).not.toBeNull();
+    expect(r.suggestion).toBeNull();
+  });
+});

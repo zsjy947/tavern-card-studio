@@ -147,6 +147,12 @@ function togglePause() {
 
 function stop() {
   abort?.abort();
+  // 暂停中终止：gate.wait 只由 togglePause resolve——这里必须同样放行，否则循环永久阻塞
+  if (resumeResolve) {
+    const r = resumeResolve;
+    resumeResolve = null;
+    r();
+  }
 }
 
 /* ---------------- 单条重生成 / 继续补充 ---------------- */

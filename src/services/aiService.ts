@@ -157,9 +157,9 @@ export async function runFieldAiJson<T>(opts: FieldAiOptions): Promise<T> {
   );
   const limit = (channel as AiChannelRow & { concurrencyLimit?: number }).concurrencyLimit ?? 2;
   const sem = getSemaphore(limit);
-  const result = await sem.run(() =>
-    client.chat({ messages, onDelta: opts.onDelta, signal: opts.signal, maxContinues: 2, jsonMode: true }),
-  );
+  const exec = () =>
+    client.chat({ messages, onDelta: opts.onDelta, signal: opts.signal, maxContinues: 2, jsonMode: true });
+  const result = opts.bypassQueue ? await exec() : await sem.run(exec);
   await logUsage(channel, opts.feature, result);
   return extractJson<T>(result.text);
 }

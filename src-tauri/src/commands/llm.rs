@@ -86,8 +86,11 @@ fn validate_url(url: &str) -> Result<(), String> {
     }
     if let Some(rest) = url.strip_prefix("http://") {
         let host = if let Some(after_bracket) = rest.strip_prefix('[') {
-            let end = after_bracket.find(']').unwrap_or(0);
-            &rest[..end + 2] // 含两侧方括号
+            match after_bracket.find(']') {
+                // 含两侧方括号；找不到闭括号直接拒绝（避免越界切片）
+                Some(end) => &rest[..end + 2],
+                None => return Err("仅支持 https 或本机回环地址".into()),
+            }
         } else {
             rest.split(['/', ':', '?', '#']).next().unwrap_or("")
         };

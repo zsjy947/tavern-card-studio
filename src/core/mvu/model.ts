@@ -127,21 +127,23 @@ function buildZodType(field: MvuVarField, groupName?: string): string {
         const hi = field.max ?? 999999;
         t += `.transform(v => _.clamp(v, ${lo}, ${hi}))`;
       }
-      t += `.prefault(${field.defaultValue || '0'})`;
+      // 非数字默认值在酒馆端会生成非法代码：收敛为 0（lint 也会提示）
+      const num = Number(field.defaultValue);
+      t += `.prefault(${Number.isFinite(num) ? num : 0})`;
       return t;
     }
     case 'boolean':
-      return `z.boolean().prefault(${field.defaultValue || 'false'})`;
+      return `z.boolean().prefault(${field.defaultValue === 'true' ? 'true' : 'false'})`;
     case 'enum': {
       const vals = field.enumValues
         .split(',')
-        .map((v) => `'${v.trim()}'`)
+        .map((v) => `'${escapeCode(v.trim())}'`)
         .filter((v) => v !== "''")
         .join(', ');
-      return `z.enum([${vals}]).prefault('${field.defaultValue || ''}')`;
+      return `z.enum([${vals}]).prefault('${escapeCode(field.defaultValue || '')}')`;
     }
     case 'record': {
-      const keyDesc = groupName || field.name || '键名';
+      const keyDesc = escapeCode(groupName || field.name || '键名');
       const sub = field.recordFields
         .split(',')
         .map((s) => {
@@ -162,8 +164,13 @@ function buildZodType(field: MvuVarField, groupName?: string): string {
     case 'array':
       return 'z.array(z.string()).prefault([])';
     default:
-      return `z.string().prefault('${field.defaultValue || ''}')`;
+      return `z.string().prefault('${escapeCode(field.defaultValue || '')}')`;
   }
+}
+
+/** 字符串字面量转义（生成 JS 代码用；同时收敛换行为空格） */
+function escapeCode(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]+/g, ' ');
 }
 
 /* ------------------------------------------------------------------ */
@@ -421,10 +428,21 @@ export function mvuCheckIssues(groups: MvuVarGroup[], zodCode: string): string[]
       issues.push('存在未命名的变量分组');
       continue;
     }
+    const names = g.fields.filter((f) => f.name).map((f) => f.name);
     for (const f of g.fields) {
       if (!f.name) continue;
       if (f.type === 'enum' && !f.enumValues.trim()) issues.push(`${g.name}.${f.name}: 枚举类型缺少枚举值`);
       if (f.type === 'number' && f.clamp && f.min === null && f.max === null) issues.push(`${g.name}.${f.name}: 开启了钳位但未设置最小/最大值`);
+      if (f.type === 'number' && f.defaultValue && !Number.isFinite(Number(f.defaultValue))) {
+        issues.push(`${g.name}.${f.name}: 数字类型默认值「${f.defaultValue}」不是合法数字（已按 0 生成）`);
+      }
+      // 路径冲突：叶子与分支重叠（如 A 与 A.b 同时存在）会静默丢失一个字段
+      for (const other of names) {
+        if (other !== f.name && other.startsWith(`${f.name}.`)) {
+          issues.push(`${g.name}: 「${f.name}」与「${other}」路径冲突（叶子不能同时是分支）`);
+          break;
+        }
+      }
     }
   }
   return issues;

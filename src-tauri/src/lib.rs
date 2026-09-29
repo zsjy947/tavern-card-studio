@@ -21,6 +21,7 @@ pub fn run() {
             commands::llm::llm_cancel_stream,
             commands::export::export_dir,
             commands::export::pick_export_dir,
+            commands::export::set_export_dir,
             commands::export::write_export,
             commands::export::open_dir
         ])

@@ -57,9 +57,20 @@ const state = ref<ExtractState | null>(null);
 const progressNote = ref('');
 let abort: AbortController | null = null;
 
-/** 分片签名：原文长度/切片参数变化即重新分片（断点续跑只在签名一致时保留进度） */
+/** FNV-1a 32 位轻量内容哈希（TCS-R2-02）：识别等长不同文的修改，避免仅按长度判断 */
+function fnv1a(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+/** 分片签名：原文长度+内容哈希与切片参数任一变化即重新分片（断点续跑只在签名一致时保留进度）。
+ * 内容哈希防「等长替换」被误判为原文未变——那种情况下旧分片进度与新内容错配。 */
 const chunkSig = computed(() =>
-  JSON.stringify([novelText.value.length, config.chunkStrategy, config.chaptersPerChunk, config.wordsPerChunk]),
+  JSON.stringify([novelText.value.length, fnv1a(novelText.value), config.chunkStrategy, config.chaptersPerChunk, config.wordsPerChunk]),
 );
 
 const chunkEstimate = computed(() => {
@@ -83,7 +94,12 @@ const plannedChunks = computed(() => {
 const progress = computed(() => {
   if (!state.value) return { done: 0, total: 0 };
   const types = state.value.config.selectedTypes;
-  const done = state.value.doneKeys.filter((k) => Number(k.split(':')[0]) < plannedChunks.value).length;
+  // done 与 total 同口径：分片范围取 plannedChunks，类型范围取当前 selectedTypes——
+  // 否则历史 doneKeys 里含已取消勾选的类型时 done > total，进度 >100%（TCS-R1-03）
+  const done = state.value.doneKeys.filter((k) => {
+    const [ci, type] = k.split(':');
+    return Number(ci) < plannedChunks.value && types.includes((type ?? '') as ExtractType);
+  }).length;
   return { done, total: plannedChunks.value * types.length };
 });
 

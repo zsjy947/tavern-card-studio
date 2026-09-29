@@ -11,6 +11,7 @@ import {
   mvuCheckIssues,
   newMvuField,
   newMvuGroup,
+  safeKey,
 } from './model';
 import { MVU_DEFAULT_CONFIG, applyMvuToCard, buildMvuSuite, detectExistingMvu, removeExistingMvu } from './suite';
 
@@ -207,5 +208,62 @@ describe('审查修复回归', () => {
     const code = buildZodCode(groups);
     expect(code).toContain("别信他\\'s 说\\'的话");
     expect(code).toContain('凡 人');
+  });
+});
+
+describe('Zod 键转义（F16/TCS-R1-02）', () => {
+  it('safeKey：合法标识符原样（含中文/保留字），特殊字符 JSON 字符串化', () => {
+    expect(safeKey('abc')).toBe('abc');
+    expect(safeKey('_x1')).toBe('_x1');
+    expect(safeKey('石质天元')).toBe('石质天元'); // Unicode 字母是合法标识符
+    expect(safeKey('class')).toBe('class'); // 保留字作对象键 ES5+ 合法
+    expect(safeKey("a'b")).toBe('"a\'b"');
+    expect(safeKey('a"b')).toBe('"a\\"b"');
+    expect(safeKey('a\nb')).toBe('"a\\nb"');
+    expect(safeKey('a b')).toBe('"a b"');
+    expect(safeKey('')).toBe('""');
+  });
+
+  it('含引号/换行/中文/保留字键的生成代码可被 new Function 编译', () => {
+    const groups = [
+      newMvuGroup("反派'组", [
+        newMvuField({ name: 'a"b', type: 'string' }),
+        newMvuField({ name: '换\n行', type: 'number', defaultValue: '1' }),
+        newMvuField({ name: 'class', type: 'string' }), // 保留字
+        newMvuField({ name: '中文键.嵌套层', type: 'string' }),
+      ]),
+      newMvuGroup('空 格', [newMvuField({ name: 'x', type: 'string' })]),
+    ];
+    const code = buildZodCode(groups);
+    // 坏键转义为字符串键
+    expect(code).toContain('"反派\'组"');
+    expect(code).toContain('"a\\"b"');
+    expect(code).toContain('"换\\n行"');
+    expect(code).toContain('"空 格"');
+    expect(code).toContain('中文键: z.object({');
+    expect(code).toContain('嵌套层: z.string()');
+    // 整段生成代码语法可编译（剥掉 import/export，未定义标识符仅影响运行不影响解析）
+    const js = code.replace(/^import[\s\S]*?;\n\n/, '').replace('export const', 'const');
+    expect(() => new Function(js)).not.toThrow();
+  });
+
+  it('正常名称输出与旧版一致（不额外加引号）', () => {
+    const code = buildZodCode(xiuxianGroups());
+    expect(code).toContain('货币: z.object({');
+    expect(code).toContain('石质天元:');
+    expect(code).toContain('背包: z.object({');
+    expect(code).not.toContain('"货币"');
+    expect(code).not.toContain('"石质天元"');
+  });
+
+  it('lint：键含非法标识符字符时告警', () => {
+    const groups = [
+      newMvuGroup("坏'组", [newMvuField({ name: '正 常名', type: 'string' }), newMvuField({ name: '好的', type: 'string' })]),
+    ];
+    const issues = mvuCheckIssues(groups, buildZodCode(groups));
+    expect(issues.some((i) => i.includes('分组「坏\'组」名称含标识符非法字符'))).toBe(true);
+    expect(issues.some((i) => i.includes('正 常名: 键含标识符非法字符'))).toBe(true);
+    // 合法键（中文）不告警
+    expect(issues.some((i) => i.includes('好的'))).toBe(false);
   });
 });

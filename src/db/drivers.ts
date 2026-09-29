@@ -39,6 +39,13 @@ export class MemoryStore implements DataStore {
     for (const e of entries) this.table(table).set(e.id, e.value);
   }
 
+  async replaceAll<T>(table: string, entries: { id: string; value: T }[]): Promise<void> {
+    // 同步清空 + 重放，天然原子（无 IO 中间态）
+    const t = this.table(table);
+    t.clear();
+    for (const e of entries) t.set(e.id, e.value);
+  }
+
   async delete(table: string, id: string): Promise<void> {
     this.table(table).delete(id);
   }

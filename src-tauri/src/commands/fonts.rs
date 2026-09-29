@@ -3,15 +3,14 @@
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-/// 字体文件目录：便携优先（exe 同级 data/fonts/，与 studio.db 同源），
-/// 目录不可建时回退 AppData/fonts。返回后前端会缓存，勿频繁调用。
-#[tauri::command]
-pub async fn font_dir(app: tauri::AppHandle) -> Result<String, String> {
+/// 解析字体目录（font_dir 与 dir 校验共用）：便携优先（exe 同级 data/fonts/，与 studio.db 同源），
+/// 目录不可建时回退 AppData/fonts。
+fn resolve_font_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let fonts = dir.join("data").join("fonts");
             if std::fs::create_dir_all(&fonts).is_ok() {
-                return Ok(fonts.to_string_lossy().into_owned());
+                return Ok(fonts);
             }
         }
     }
@@ -21,7 +20,24 @@ pub async fn font_dir(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .join("fonts");
     std::fs::create_dir_all(&fallback).map_err(|e| e.to_string())?;
-    Ok(fallback.to_string_lossy().into_owned())
+    Ok(fallback)
+}
+
+/// dir 参数校验（TCS-R3-01）：必须与 Rust 侧解析出的字体目录完全一致——
+/// 前端只应回传 font_dir() 的返回值；不一致即拒绝，防止借 dir 参数读写/删除任意目录。
+fn ensure_font_dir(app: &tauri::AppHandle, dir: &str) -> Result<PathBuf, String> {
+    let expected = resolve_font_dir(app)?;
+    if Path::new(dir) != expected.as_path() {
+        return Err(format!("非法字体目录：{dir}"));
+    }
+    Ok(PathBuf::from(dir))
+}
+
+/// 字体文件目录：便携优先（exe 同级 data/fonts/，与 studio.db 同源），
+/// 目录不可建时回退 AppData/fonts。返回后前端会缓存，勿频繁调用。
+#[tauri::command]
+pub async fn font_dir(app: tauri::AppHandle) -> Result<String, String> {
+    resolve_font_dir(&app).map(|p| p.to_string_lossy().into_owned())
 }
 
 /// 字体文件名校验：仅允许平铺文件名（字母数字 . _ -），拒绝路径分隔与 ..。
@@ -41,14 +57,15 @@ pub fn safe_font_name(name: &str) -> Result<String, String> {
 
 /// 写入字体文件（base64 传参：与卡封面同机制的 JSON IPC，一次性安装可接受）。
 #[tauri::command]
-pub async fn font_write(dir: String, name: String, b64: String) -> Result<(), String> {
+pub async fn font_write(app: tauri::AppHandle, dir: String, name: String, b64: String) -> Result<(), String> {
     use base64::Engine as _;
+    let dir_path = ensure_font_dir(&app, &dir)?;
     let safe = safe_font_name(&name)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .map_err(|e| format!("base64 解码失败：{e}"))?;
-    let path: PathBuf = Path::new(&dir).join(safe);
-    if !path.parent().map(|p| p == Path::new(&dir)).unwrap_or(false) {
+    let path: PathBuf = dir_path.join(safe);
+    if !path.parent().map(|p| p == dir_path.as_path()).unwrap_or(false) {
         return Err("路径越界".into());
     }
     std::fs::write(&path, bytes).map_err(|e| format!("字体写入失败：{e}"))
@@ -56,17 +73,19 @@ pub async fn font_write(dir: String, name: String, b64: String) -> Result<(), St
 
 /// 读取字体文件，返回原始字节（二进制 IPC）。
 #[tauri::command]
-pub async fn font_read(dir: String, name: String) -> Result<tauri::ipc::Response, String> {
+pub async fn font_read(app: tauri::AppHandle, dir: String, name: String) -> Result<tauri::ipc::Response, String> {
+    let dir_path = ensure_font_dir(&app, &dir)?;
     let safe = safe_font_name(&name)?;
-    let bytes = std::fs::read(Path::new(&dir).join(safe)).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(dir_path.join(safe)).map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// 删除字体文件（不存在视为成功）。
 #[tauri::command]
-pub async fn font_delete(dir: String, name: String) -> Result<(), String> {
+pub async fn font_delete(app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+    let dir_path = ensure_font_dir(&app, &dir)?;
     let safe = safe_font_name(&name)?;
-    match std::fs::remove_file(Path::new(&dir).join(safe)) {
+    match std::fs::remove_file(dir_path.join(safe)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.to_string()),

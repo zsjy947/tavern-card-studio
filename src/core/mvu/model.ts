@@ -53,6 +53,23 @@ export function newMvuGroup(name: string, fields: MvuVarField[] = []): MvuVarGro
 /* 嵌套树：`.` 路径 → 树（Zod / YAML / 更新规则三个生成器共用）          */
 /* ------------------------------------------------------------------ */
 
+/** 合法 ECMAScript 标识符（含中文等 Unicode 字母；保留字作对象键在 ES5+ 合法） */
+const IDENT_KEY_RE = /^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u;
+
+/** 键是否可安全裸写在生成代码里（Zod 对象字面量的属性名） */
+export function isSafeObjectKey(k: string): boolean {
+  return IDENT_KEY_RE.test(k);
+}
+
+/**
+ * 生成代码的对象键转义（F16/TCS-R1-02）：合法标识符原样输出，
+ * 否则 JSON.stringify 成字符串键——自动处理引号/反斜杠/换行/控制字符，
+ * 保证任意用户输入的组名/字段名生成的 Zod 代码可被编译。
+ */
+export function safeKey(k: string): string {
+  return isSafeObjectKey(k) ? k : JSON.stringify(k);
+}
+
 interface TreeNode {
   field?: MvuVarField;
   children?: Record<string, TreeNode>;
@@ -92,9 +109,9 @@ export function buildZodCode(groups: MvuVarGroup[], opts: { trackPresentChars?: 
     // 整组就是一个无名字段 record → 直接以组名挂 record
     const wholeRecord = named.length === 1 && named[0]!.type === 'record' && !named[0]!.name.includes('.');
     if (wholeRecord) {
-      code += `  ${group.name}: ${buildZodType(named[0]!, group.name)},\n`;
+      code += `  ${safeKey(group.name)}: ${buildZodType(named[0]!, group.name)},\n`;
     } else {
-      code += `  ${group.name}: z.object({\n`;
+      code += `  ${safeKey(group.name)}: z.object({\n`;
       code += zodTreeToCode(buildTree(named), 2);
       code += '  }).prefault({}),\n';
     }
@@ -110,9 +127,9 @@ function zodTreeToCode(tree: Record<string, TreeNode>, indent: number): string {
   let code = '';
   const pad = '  '.repeat(indent);
   for (const [k, v] of Object.entries(tree)) {
-    if (v.field) code += `${pad}${k}: ${buildZodType(v.field)},\n`;
+    if (v.field) code += `${pad}${safeKey(k)}: ${buildZodType(v.field)},\n`;
     else if (v.children) {
-      code += `${pad}${k}: z.object({\n${zodTreeToCode(v.children, indent + 1)}${pad}}).prefault({}),\n`;
+      code += `${pad}${safeKey(k)}: z.object({\n${zodTreeToCode(v.children, indent + 1)}${pad}}).prefault({}),\n`;
     }
   }
   return code;
@@ -152,7 +169,7 @@ function buildZodType(field: MvuVarField, groupName?: string): string {
           const n = parts[0]!.trim();
           const t = parts[1]!.trim();
           const zt = t === 'number' ? 'z.coerce.number().prefault(0)' : "z.string().prefault('')";
-          return `      ${n}: ${zt}`;
+          return `      ${safeKey(n)}: ${zt}`;
         })
         .filter(Boolean)
         .join(',\n');
@@ -428,9 +445,15 @@ export function mvuCheckIssues(groups: MvuVarGroup[], zodCode: string): string[]
       issues.push('存在未命名的变量分组');
       continue;
     }
+    if (!isSafeObjectKey(g.name)) {
+      issues.push(`分组「${g.name}」名称含标识符非法字符（Zod 代码中已按字符串键转义）`);
+    }
     const names = g.fields.filter((f) => f.name).map((f) => f.name);
     for (const f of g.fields) {
       if (!f.name) continue;
+      if (f.name.split('.').some((p) => p && !isSafeObjectKey(p))) {
+        issues.push(`${g.name}.${f.name}: 键含标识符非法字符（Zod 代码中已按字符串键转义）`);
+      }
       if (f.type === 'enum' && !f.enumValues.trim()) issues.push(`${g.name}.${f.name}: 枚举类型缺少枚举值`);
       if (f.type === 'number' && f.clamp && f.min === null && f.max === null) issues.push(`${g.name}.${f.name}: 开启了钳位但未设置最小/最大值`);
       if (f.type === 'number' && f.defaultValue && !Number.isFinite(Number(f.defaultValue))) {

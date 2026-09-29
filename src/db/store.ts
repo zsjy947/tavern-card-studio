@@ -23,6 +23,11 @@ export interface DataStore {
   put<T>(table: string, id: string, value: T): Promise<void>;
   /** 批量写入（导入/恢复用） */
   bulkPut<T>(table: string, entries: { id: string; value: T }[]): Promise<void>;
+  /**
+   * 原子全量替换（wipe 导入用，F2/TCS-R2-01）：清空旧数据 + 写入新数据
+   * 在单个事务内完成，中途失败整体回滚——不会出现「已清空但新数据没写进」的中间态。
+   */
+  replaceAll<T>(table: string, entries: { id: string; value: T }[]): Promise<void>;
   delete(table: string, id: string): Promise<void>;
   clear(table: string): Promise<void>;
   /** 供备份导出 */

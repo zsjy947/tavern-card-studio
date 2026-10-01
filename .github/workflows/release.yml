@@ -33,7 +33,6 @@ jobs:
           releaseBody: '请在Assets下载对应安装包，校验无误后手动发布本 Release。'
           releaseDraft: true
           prerelease: false
-          args: '--release'
       # 草稿 release 之外再收一份 workflow artifact（collect-release.mjs 只做产物收集，不触发构建）
       - name: Collect artifacts
         run: node scripts/collect-release.mjs

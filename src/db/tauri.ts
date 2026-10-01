@@ -98,6 +98,24 @@ export class TauriSqlStore implements DataStore {
     for (const e of entries) await this.put(table, e.id, e.value);
   }
 
+  /**
+   * 原子全量替换（F2/TCS-R2-01）：显式事务 BEGIN IMMEDIATE → DELETE → 批量 upsert → COMMIT。
+   * 中途任何一步失败 ROLLBACK，库保持导入前的旧数据（不会清空后落半截）。
+   * 插件 execute 每次一条语句，事务跨多次 execute：本应用顺序 await、池内单连接，语句落在同一连接上。
+   */
+  async replaceAll<T>(table: string, entries: { id: string; value: T }[]): Promise<void> {
+    await this.run('BEGIN IMMEDIATE', []);
+    try {
+      await this.run(`DELETE FROM ${table}`, []);
+      for (const e of entries) await this.put(table, e.id, e.value);
+      await this.run('COMMIT', []);
+    } catch (e) {
+      // 尽力回滚（回滚失败也优先抛原始错误）
+      await this.run('ROLLBACK', []).catch(() => undefined);
+      throw e;
+    }
+  }
+
   async delete(table: string, id: string): Promise<void> {
     await this.run(`DELETE FROM ${table} WHERE id = $1`, [id]);
   }

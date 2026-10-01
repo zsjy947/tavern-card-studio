@@ -401,11 +401,8 @@ watch(aiHtml, (v) => {
     previewCss.value = extractCss(v);
     previewCssDraft.value = previewCss.value;
     located.value = null;
+    // 重新生成即换文档，点选按钮复位（重武装走下方 @remounted，不在此处理）
     picking.value = false;
-    // iframe 可能重挂（文档变化 key++）：挂载后若点选态仍开启，重新武装
-    if (pickerArmed.value && picking.value) {
-      setTimeout(() => aiPreviewRef.value?.startPicker(), 100);
-    }
   }
 });
 
@@ -433,6 +430,15 @@ function togglePicker() {
   } else {
     aiPreviewRef.value?.stopPicker();
   }
+}
+
+/**
+ * iframe 重挂完成（文档或 CSS 变化触发 key++，F15）：
+ * CSS 编辑 → 500ms 防抖 → doc 变 → 重挂 → 旧窗口的 START 失效。
+ * 点选态仍开启时延迟向新窗口重发 START，链路保持「点选中可实时改样式」。
+ */
+function onPreviewRemounted() {
+  if (pickerArmed.value && picking.value) setTimeout(() => aiPreviewRef.value?.startPicker(), 100);
 }
 
 function onPick(p: { selector: string | null; tag: string }) {
@@ -650,6 +656,7 @@ watch(mode, () => {
               height="420px"
               @pick="onPick"
               @picker-esc="picking = false"
+              @remounted="onPreviewRemounted"
             />
             <NCard size="small" title="CSS（点选定向改 / 实时重渲）">
               <CodeEditor v-model="previewCssDraft" language="text" height="200px" :highlight-line="located?.line ?? 0" />

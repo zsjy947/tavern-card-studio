@@ -87,6 +87,20 @@ export class IndexedDbStore implements DataStore {
     });
   }
 
+  /** 单个 readwrite 事务内 clear + put：中途任何一步失败整事务回滚（F2 原子替换） */
+  async replaceAll<T>(table: string, entries: { id: string; value: T }[]): Promise<void> {
+    const db = await this.db;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(table, 'readwrite');
+      const store = tx.objectStore(table);
+      store.clear();
+      for (const e of entries) store.put({ id: e.id, value: e.value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
   async delete(table: string, id: string): Promise<void> {
     await this.tx(table, 'readwrite', (s) => s.delete(id));
   }

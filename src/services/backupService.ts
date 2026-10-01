@@ -26,7 +26,10 @@ export async function exportBackup(): Promise<Blob> {
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 
-export async function importBackup(blob: Blob | Uint8Array, opts: { wipe?: boolean } = {}): Promise<{ tables: Record<string, number> }> {
+export async function importBackup(
+  blob: Blob | Uint8Array,
+  opts: { wipe?: boolean } = {},
+): Promise<{ tables: Record<string, number>; skipped: Record<string, number> }> {
   const zip = await JSZip.loadAsync(blob);
   const manifestFile = zip.file('manifest.json');
   if (!manifestFile) throw new Error('不是有效的备份包（缺少 manifest.json）');
@@ -35,20 +38,26 @@ export async function importBackup(blob: Blob | Uint8Array, opts: { wipe?: boole
 
   const store = await getStore();
   const counts: Record<string, number> = {};
+  const skipped: Record<string, number> = {};
   let touchedTemplates = false;
   for (const file of Object.values(zip.files)) {
     const m = /^tables\/(.+)\.json$/.exec(file.name);
     if (!m) continue;
     const table = m[1]!;
     if (table === 'templates') touchedTemplates = true;
-    const rows = JSON.parse(await file.async('string')) as { id: string }[];
-    if (opts.wipe) await store.clear(table);
-    await store.bulkPut(table, rows.map((r) => ({ id: r.id, value: r })));
-    counts[table] = rows.length;
+    const rows = JSON.parse(await file.async('string')) as unknown[];
+    // 行校验：非对象 / 无 id / id 非字符串的坏行过滤掉并计数（F2）
+    const valid = rows.filter((r): r is { id: string } =>
+      !!r && typeof r === 'object' && typeof (r as { id?: unknown }).id === 'string' && (r as { id: string }).id !== '');
+    const bad = rows.length - valid.length;
+    if (opts.wipe) await store.replaceAll(table, valid.map((r) => ({ id: r.id, value: r })));
+    else await store.bulkPut(table, valid.map((r) => ({ id: r.id, value: r })));
+    counts[table] = valid.length;
+    if (bad > 0) skipped[table] = bad;
   }
   // wipe 导入会清掉 templates 表：复位播种标记，让内置模板在下次访问时重新补种
   if (touchedTemplates) resetSeededFlag();
-  return { tables: counts };
+  return { tables: counts, skipped };
 }
 
 /** 浏览器下载工具 / 桌面端写全局导出目录（见 exportService） */

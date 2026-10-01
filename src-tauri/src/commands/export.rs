@@ -1,8 +1,41 @@
 //! 导出目录管理与文件落盘（全局导出目录，默认 exe 同级 data/exports/）
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+
+/// 进程内已注册的导出目录（TCS-R3-01）：write_export 只写已注册目录。
+/// 前端导出前先 set_export_dir（值来自 export_dir / pick_export_dir 的返回），
+/// write_export 校验 dir 与注册值一致，防止 dir 被篡改后写任意位置。
+static REGISTERED_EXPORT_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// 注册导出目录：仅接受绝对路径、且当前存在并确实是文件夹的路径。
+#[tauri::command]
+pub async fn set_export_dir(dir: String) -> Result<(), String> {
+    let p = PathBuf::from(&dir);
+    if !p.is_absolute() {
+        return Err(format!("导出目录必须为绝对路径：{dir}"));
+    }
+    let meta = std::fs::metadata(&p).map_err(|e| format!("导出目录不可访问：{e}"))?;
+    if !meta.is_dir() {
+        return Err(format!("导出目录不是文件夹：{dir}"));
+    }
+    *REGISTERED_EXPORT_DIR
+        .lock()
+        .map_err(|e| format!("导出目录状态锁异常：{e}"))? = Some(p);
+    Ok(())
+}
+
+/// 取已注册目录并校验调用方传入的 dir 与之一致（未注册/不符都拒绝）。
+fn registered_export_dir(dir: &str) -> Result<PathBuf, String> {
+    let guard = REGISTERED_EXPORT_DIR.lock().map_err(|e| e.to_string())?;
+    match guard.as_ref() {
+        Some(p) if Path::new(dir) == p.as_path() => Ok(p.clone()),
+        Some(_) => Err(format!("导出目录与已注册值不符：{dir}（请先 set_export_dir）")),
+        None => Err("导出目录未注册（请先 set_export_dir）".into()),
+    }
+}
 
 /// 导出目录：便携优先（exe 同级 data/exports/，与 studio.db 同源），
 /// 目录不可建时回退 AppData/exports。目录不存在时自动创建。
@@ -85,11 +118,12 @@ pub fn safe_export_file_name(name: &str) -> Result<String, String> {
 }
 
 /// 写出导出文件（base64 传参，与 font_write 同机制）。返回完整路径。
+/// dir 必须与进程内已注册的导出目录一致（前端导出前先 set_export_dir，TCS-R3-01）。
 #[tauri::command]
 pub async fn write_export(dir: String, file_name: String, b64: String) -> Result<String, String> {
     use base64::Engine as _;
     let safe = safe_export_file_name(&file_name)?;
-    let dir_path = PathBuf::from(&dir);
+    let dir_path = registered_export_dir(&dir)?;
     std::fs::create_dir_all(&dir_path).map_err(|e| format!("导出目录不可用：{e}"))?;
     let path = dir_path.join(&safe);
     if path.parent() != Some(dir_path.as_path()) {

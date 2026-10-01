@@ -119,9 +119,24 @@ async function doImport(wipe: boolean) {
   if (!files.length) return;
   busy.value = 'import';
   try {
+    // 导入前快照（仅 wipe）：当前库先 dump 成备份 zip 落到导出目录/浏览器下载，
+    // 导入失败时用户手里仍有旧数据可恢复。快照是额外保险——失败只降级日志，不阻塞导入。
+    if (wipe) {
+      try {
+        const blob = await exportBackup();
+        const path = await downloadBlob(blob, timestampName('tavern-card-studio-snapshot', 'zip'));
+        console.info(path ? `导入前快照已保存：${path}` : '导入前快照已保存（浏览器下载）');
+      } catch (e) {
+        console.warn('导入前快照失败（不阻塞导入）：', e);
+      }
+    }
     const r = await importBackup(new Uint8Array(await files[0]!.arrayBuffer()), { wipe });
     await ws.refreshCards(true);
-    message.success(`恢复完成：${Object.entries(r.tables).map(([k, n]) => `${k} ${n}`).join('，')}`);
+    const skippedNote = Object.entries(r.skipped).map(([k, n]) => `${k} ${n}`).join('，');
+    message.success(
+      `恢复完成：${Object.entries(r.tables).map(([k, n]) => `${k} ${n}`).join('，')}` +
+      (skippedNote ? `（跳过无效行：${skippedNote}）` : ''),
+    );
     location.reload();
   } catch (e) {
     message.error((e as Error).message);

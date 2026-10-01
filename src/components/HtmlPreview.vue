@@ -27,6 +27,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   pick: [payload: { selector: string | null; tag: string }];
   pickerEsc: [];
+  /** iframe 重挂完成信号（文档/CSS 变化 key++）：父页据此把点选等跨 iframe 状态重新武装（F15） */
+  remounted: [];
 }>();
 
 const appearance = useAppearance();
@@ -59,6 +61,8 @@ const doc = computed(() => {
 
 watch(doc, () => {
   key.value++;
+  // 重挂通知：此时新 iframe 尚未挂载完成，父页收到后需自行延迟再 postMessage（F15）
+  emit('remounted');
 });
 
 /* ---- picker postMessage 桥 ---- */

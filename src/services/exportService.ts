@@ -64,6 +64,9 @@ export async function saveExportFile(req: SaveExportRequest): Promise<string | n
   const dir = await getExportDir();
   const bytes = req.bytes ?? new TextEncoder().encode(req.text ?? '');
   const b64 = bytesToBase64(bytes);
+  // 先注册导出目录（TCS-R3-01）：write_export 只写与已注册值一致的目录；
+  // dir 恒来自 export_dir / pick_export_dir 的返回（自定义设置也只是中转它们的结果）。
+  await tauriInvoke()('set_export_dir', { dir });
   const path = await tauriInvoke()('write_export', { dir, fileName: req.name, b64 });
   return String(path);
 }

@@ -258,6 +258,26 @@ describe('importBackup 行校验（F2）', () => {
     expect(r.skipped.cards).toBe(4);
   });
 
+  it('未知表名被白名单拒绝，不透传到 SQL（表名注入防御）', async () => {
+    const { store, ops } = recordingStore();
+    setStore(store);
+    const zip = new JSZip();
+    zip.file('manifest.json', JSON.stringify({ app: 'tavern-card-studio', version: 1, tables: {} }));
+    zip.file('tables/cards; COMMIT; SELECT load_extension(\'x\') --.json', '[]');
+    await expect(importBackup(await zip.generateAsync({ type: 'blob' }), { wipe: true })).rejects.toThrow('未知表');
+    expect(ops).toEqual([]); // 未触达任何 store 调用
+  });
+
+  it('排除表（fonts）同样被拒绝导入', async () => {
+    const { store, ops } = recordingStore();
+    setStore(store);
+    const zip = new JSZip();
+    zip.file('manifest.json', JSON.stringify({ app: 'tavern-card-studio', version: 1, tables: {} }));
+    zip.file('tables/fonts.json', '[]');
+    await expect(importBackup(await zip.generateAsync({ type: 'blob' }))).rejects.toThrow('未知表');
+    expect(ops).toEqual([]);
+  });
+
   it('全部合法时 skipped 为空对象', async () => {
     const { store } = recordingStore();
     setStore(store);

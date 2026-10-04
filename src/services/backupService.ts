@@ -4,10 +4,15 @@
  */
 import JSZip from 'jszip';
 import { getStore } from '@/db';
+import { TABLES } from '@/db/store';
 import { resetSeededFlag } from './templateService';
 
 /** 不参与备份的表 */
 const BACKUP_EXCLUDED = new Set(['fonts', 'font_blobs']);
+
+/** 导入白名单 = 导出会写出的表。表名会被拼进 SQL（replaceAll 的
+ *  DELETE/INSERT），来自 zip 的任意名字绝不能直接透传。 */
+const IMPORTABLE_TABLES = new Set<string>(TABLES.filter((t) => !BACKUP_EXCLUDED.has(t)));
 
 export async function exportBackup(): Promise<Blob> {
   const store = await getStore();
@@ -44,6 +49,10 @@ export async function importBackup(
     const m = /^tables\/(.+)\.json$/.exec(file.name);
     if (!m) continue;
     const table = m[1]!;
+    // 白名单拦截：未知表名直接报错拒绝导入（不静默跳过）
+    if (!IMPORTABLE_TABLES.has(table)) {
+      throw new Error(`备份包含未知表「${table}」，已拒绝导入（仅支持：${[...IMPORTABLE_TABLES].join('、')}）`);
+    }
     if (table === 'templates') touchedTemplates = true;
     const rows = JSON.parse(await file.async('string')) as unknown[];
     // 行校验：非对象 / 无 id / id 非字符串的坏行过滤掉并计数（F2）

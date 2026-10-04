@@ -26,7 +26,7 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 └─ src-tauri/                     Rust 命令（commands/{db,http,fonts,llm,export,net}）
 ```
 
-## 功能地图（12 视图）
+## 功能地图（13 视图）
 
 | 页面 | 路由 | 能力 |
 |---|---|---|
@@ -38,6 +38,7 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 | 模板中心 | `/templates` | 四类模板（card/statusbar/regex/prompt）结构化编辑（builtin 自动落副本）、从卡沉淀（字段/正则勾选/状态栏元数据）、导入导出 |
 | AI 中心 | `/ai` | 多渠道管理（OpenAI 兼容/NovelAI）、测连（最小 chat POST）、拉模型、生图测试、用量记录 |
 | 诊断与调整 | `/diagnosis` | 静态体检 + 卡医 LLM 诊断 + 处方 diff 应用 |
+| 组装透视 | `/xray` | 无头 ST 组装运行时（纯本地）：实时计算酒馆实际发送的 prompt——世界书逐条触发原因/正则双通路对照/逐段 token 分解，seed 确定性重放，导出与真机比对 |
 | 同人卡工坊 | `/novel` | txt/epub 导入 → 章节切分 → 角色扫描 → **抽卡与世界书两步独立重跑**（世界书支持六类任务 / **5 类轨迹**两种模式）→ 开场白/文风/user 人设 |
 | 统计看板 | `/stats` | 卡库规模、token 分布、AI 用量 |
 | 设置与备份 | `/settings` | 主题/字体、导出文件夹、**导出文件名模板（{name}/{spec}/{version}/{date}）**、**界面语言切换**、**快捷键只读表**、全量备份 zip、偏好 |
@@ -107,6 +108,19 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 ### diag（staticChecks）
 - 本地零成本检查：结构缺失（error）/ token 超限（分级）/ 世界书键冲突与死条目 / 正则语法 / base64 嵌图体积 / 宏使用建议。
 - 阈值可调，供 UI 与卡医 skill 复用。
+
+### st（ST 无头组装运行时，迭代八 / 试卡闭环 M1）
+> **AGPL 红线**：SillyTavern 是 AGPL-3.0，本模块为按公开文档（docs.sillytavern.app）与真机运行时导出样本的**独立重实现**，严禁参照或复制 ST 源码。语义锚定 = 官方文档 + 黄金 fixture（`tests/fixtures/st-golden/`，校准流程 [st-golden-guide.md](./st-golden-guide.md)）。
+
+- 全部纯函数、无 DOM、**禁用裸 Math.random**——一切随机（probability 掷骰/组选举/`{{random}}`）经 `rng.ts` 的 mulberry32 seeded RNG，同 seed 同输入重放一致。rng 消耗顺序固定：先世界书回放，再按段序宏展开。
+- `settings.ts`：`StSettings` ST 骨架参数（主提示词/NSFW/PHI/人设/作者注释/扫描深度/预算%/递归步数等），带 ST 默认值、逐项注明出处与「待真机样本校准」标记。**卡内视角模拟**：只完整模拟卡驱动部分，不解析 ST settings/preset/全局世界书。
+- `macro.ts`：**全项目唯一宏求值器**（`template/variables.ts` 已委托；`regex/model.ts` 的旧 expandMacros 留给编辑器测试台不动）。支持 user/char/random/pick/roll/time/date/setvar 双语法/getvar/var/match；未知宏保留字面量 + warnings。单次线性扫描，setvar 对后续宏可见。
+- `chat.ts`：线性 `ChatState`（无消息树/swipe/群聊），变量表 + timedEffects 截止楼计数存储；`depthFromEnd` 为深度度量（末条 = 0）。
+- `worldinfo.ts`：激活引擎，逐楼回放（step=-1 表示空对话，蓝灯仍注入）。键匹配（大小写/整词——拉丁词形键用词边界、CJK 回退子串/`use_regex`）→ selectiveLogic 四逻辑 → constant → probability → group 选举（groupOverride 强制；**use_group_scoring 降级为纯 groupWeight 权重**）→ 递归（prevent=不作递归源 / exclude=不可被递归激活 / delayUntilRecursion=仅递归通道，逐激活源归因，maxRecursionSteps 封顶）→ timedEffects（sticky 免键维持不刷新截止楼 / cooldown 自激活楼起算【近似】/ delay）→ 预算填充（order 降序优先、minActivations 回补、ignoreBudget 豁免；按宏展开前原文计 token）。逐条目 trace：激活（constant/keyword/recursive/sticky）与未激活（disabled/vectorized/no-key-match/secondary-failed/delayed/cooldown/probability-failed/group-lost/budget-dropped/delay-until-recursion/recursion-disabled）词汇表。
+- `regex.ts`：消息级正则管线（与 `regex/model.ts` 单脚本原语分工，后者不动）。placement 过滤 / minDepth·maxDepth 深度过滤 / **promptOnly vs markdownOnly 双通路**（发送态与显示态是两条链）/ `{{match}}`（转原生 `$&` 保 `$1` 捕获组语义）/ substituteRegex 1·2 / trimStrings。
+- `assemble.ts`：顶层组装 `(card, chat, settings, seed) → AssembleResult`。消息序按 ST 文档默认序：主提示词 → 世界书·前置 → 人设 → 描述/性格/场景 → 世界书·后置 → NSFW → 示例对话 → 历史（作者注释 + ANTop/ANBottom 挂 AN 注入点、atDepth 按楼插队）→ 卡片 PHI → 全局 PHI。逐段 source 标签 + token 分解；setvar 变量按段序演化；末条 AI 消息给出发送态/显示态正则对照（regexPreview）。
+- **明确不支持清单**（UI「说明」面板同步展示）：消息树/swipe/群聊；instruct 模板与文本补全组装模式；ST 全局世界书/preset/settings 导入；向量检索（vectorized 条目跳过并标注）；use_group_scoring 精确评分（降级权重选举）；酒馆助手卡内 JS 执行（M3 起由 TS 侧 Zod clamp 替代）；正则 placement=5 改写扫描文本。
+- `services/xrayService.ts`：薄编排（组装 + 合并同角色相邻段 + JSON/文本导出），视图零核心编排；`PromptXrayView`（`/xray`）选卡 + 手工编对话 + 骨架参数 + seed 即时重算，导出物可直接与真机导出 diff。
 
 ## db：三驱动等价性
 
@@ -223,7 +237,9 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 
 ## 测试策略
 
-- vitest 238 用例（31 文件）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化，样本缺失自动跳过）；Rust cargo test（字体文件名与 font_exists、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client）。
+- vitest 342 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
+- **黄金 fixture 门禁**（迭代八）：`tests/fixtures/st-golden/*.json` 12 个合成场景冻结组装器的消息结构（块序/世界书语义/正则双通路/宏/注入点），`UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结后人工审 diff；真机样本（source:"real-st"）落同目录走同一校验。
+- Rust cargo test（字体文件名与 font_exists、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client）。
 - E2E（@playwright/test + connectOverCDP 附加真实 WebView2，规避自带 Chromium 假信心）：金路径 spec + `scripts/e2e-dev.mjs`（CDP 端口启动）；本机 `npm run e2e` 为准入门槛，CI 无头环境起步 continue-on-error。
 - 浏览器冒烟（已执行多轮）：11 页面渲染、空白模板手填入库全流程、编辑器七 Tab、成员面板、美化变量工作台与多人群像预览、原始 JSON 抽屉、双主题切换、指南 sticky 几何实测。
 - 未覆盖（见 ROADMAP）：E2E 的 CI 无头稳定性、流式二进制通道（D2.2）、MVU 真机验收。

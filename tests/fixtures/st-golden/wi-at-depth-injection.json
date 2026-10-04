@@ -1,0 +1,75 @@
+{
+  "name": "wi-at-depth-injection",
+  "description": "position=atDepth depth=1：注入到末条消息之前",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {},
+        "character_book": {
+          "name": "b",
+          "entries": [
+            {
+              "id": 1,
+              "keys": [
+                "雪"
+              ],
+              "content": "深度注入内容",
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {
+                "position": 4,
+                "depth": 1,
+                "role": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    "chat": [
+      {
+        "role": "assistant",
+        "content": "嗨"
+      },
+      {
+        "role": "user",
+        "content": "一"
+      },
+      {
+        "role": "assistant",
+        "content": "雪"
+      }
+    ],
+    "settings": null,
+    "seed": 1234
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Write 小雪's next reply in a fictional chat between 小雪 and User."
+      },
+      {
+        "role": "assistant",
+        "content": "嗨"
+      },
+      {
+        "role": "user",
+        "content": "一"
+      },
+      {
+        "role": "system",
+        "content": "深度注入内容"
+      },
+      {
+        "role": "assistant",
+        "content": "雪"
+      }
+    ]
+  }
+}

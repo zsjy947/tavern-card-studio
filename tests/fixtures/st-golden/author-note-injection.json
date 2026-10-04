@@ -1,0 +1,58 @@
+{
+  "name": "author-note-injection",
+  "description": "作者注释按深度注入（depth=1 → 末条之前）",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {}
+      }
+    },
+    "chat": [
+      {
+        "role": "assistant",
+        "content": "嗨"
+      },
+      {
+        "role": "user",
+        "content": "二"
+      },
+      {
+        "role": "assistant",
+        "content": "雪"
+      }
+    ],
+    "settings": {
+      "mainPrompt": "",
+      "authorNote": {
+        "content": "注意保持叙事节奏",
+        "depth": 1,
+        "role": "system"
+      }
+    },
+    "seed": 1234
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "嗨"
+      },
+      {
+        "role": "user",
+        "content": "二"
+      },
+      {
+        "role": "system",
+        "content": "注意保持叙事节奏"
+      },
+      {
+        "role": "assistant",
+        "content": "雪"
+      }
+    ]
+  }
+}

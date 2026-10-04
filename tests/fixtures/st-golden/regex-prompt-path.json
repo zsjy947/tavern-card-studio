@@ -1,0 +1,69 @@
+{
+  "name": "regex-prompt-path",
+  "description": "promptOnly 正则作用于 AI 历史消息；markdownOnly 不进提示词",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {
+          "regex_scripts": [
+            {
+              "id": "r1",
+              "scriptName": "隐藏数字",
+              "findRegex": "\\d+",
+              "replaceString": "N",
+              "placement": [
+                2
+              ],
+              "promptOnly": true,
+              "trimStrings": []
+            },
+            {
+              "id": "r2",
+              "scriptName": "显示装饰",
+              "findRegex": "嗨",
+              "replaceString": "【嗨】",
+              "placement": [
+                0
+              ],
+              "markdownOnly": true,
+              "trimStrings": []
+            }
+          ]
+        },
+        "first_mes": "嗨"
+      }
+    },
+    "chat": [
+      {
+        "role": "assistant",
+        "content": "嗨 幸运7"
+      },
+      {
+        "role": "user",
+        "content": "嗯"
+      }
+    ],
+    "settings": null,
+    "seed": 1234
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Write 小雪's next reply in a fictional chat between 小雪 and User."
+      },
+      {
+        "role": "assistant",
+        "content": "嗨 幸运N"
+      },
+      {
+        "role": "user",
+        "content": "嗯"
+      }
+    ]
+  }
+}

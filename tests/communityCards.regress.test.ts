@@ -10,6 +10,7 @@ import { extractCardFromPng } from '@/core/png';
 import { runStaticChecks } from '@/core/diag/staticChecks';
 import { insertStatusbar, renderStatusbarHtml } from '@/services/beautifyService';
 import { builtinStatusbarTemplates, type StatusbarPayload } from '@/builtins/statusbarTemplates';
+import { assemblePrompt, cardWorldInfoEntries, createChatState } from '@/core/st';
 
 const SAMPLE_DIR = 'D:/AAA_files/downloads/SillyTavern/角色卡/discord类脑';
 const hasSamples = existsSync(SAMPLE_DIR);
@@ -101,5 +102,23 @@ describe.skipIf(!hasSamples)('真实社区卡导入回归（discord类脑 13 卡
       inserted++;
     }
     expect(inserted).toBe(files.length);
+  });
+
+  it('组装透视引擎吃真实卡：可组装不抛错，世界书 trace 覆盖全部条目，同 seed 重放一致', () => {
+    for (const f of files) {
+      const raw = f.endsWith('.png')
+        ? extractCardFromPng(new Uint8Array(readFileSync(join(SAMPLE_DIR, f)))).raw
+        : JSON.parse(readFileSync(join(SAMPLE_DIR, f), 'utf8'));
+      const card = parseLooseCard(raw);
+      const chat = createChatState(card);
+      const r1 = assemblePrompt(card, chat);
+      expect(r1.segments.length).toBeGreaterThanOrEqual(1);
+      const { entries } = cardWorldInfoEntries(card);
+      if (entries.length) expect(r1.wiTraces).toHaveLength(entries.length);
+      expect(r1.tokens.total).toBeGreaterThan(0);
+      const r2 = assemblePrompt(card, chat);
+      expect(r1.segments).toStrictEqual(r2.segments);
+      expect(r1.wiTraces).toStrictEqual(r2.wiTraces);
+    }
   });
 });

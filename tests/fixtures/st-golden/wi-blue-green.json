@@ -1,0 +1,72 @@
+{
+  "name": "wi-blue-green",
+  "description": "蓝灯恒注入；绿灯键命中；未命中条目不出现",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {},
+        "character_book": {
+          "name": "b",
+          "entries": [
+            {
+              "id": 1,
+              "keys": [],
+              "content": "蓝灯内容：世界观设定",
+              "constant": true,
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {}
+            },
+            {
+              "id": 2,
+              "keys": [
+                "雪"
+              ],
+              "content": "绿灯内容：下雪时的反应",
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {}
+            },
+            {
+              "id": 3,
+              "keys": [
+                "花"
+              ],
+              "content": "不会出现的条目",
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {}
+            }
+          ]
+        }
+      }
+    },
+    "chat": [
+      {
+        "role": "user",
+        "content": "外面下雪了"
+      }
+    ],
+    "settings": null,
+    "seed": 1234
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Write 小雪's next reply in a fictional chat between 小雪 and User.\n蓝灯内容：世界观设定\n绿灯内容：下雪时的反应"
+      },
+      {
+        "role": "user",
+        "content": "外面下雪了"
+      }
+    ]
+  }
+}

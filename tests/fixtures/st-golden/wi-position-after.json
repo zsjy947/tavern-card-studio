@@ -1,0 +1,54 @@
+{
+  "name": "wi-position-after",
+  "description": "position=after 的条目排在角色字段之后、历史之前",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {},
+        "description": "白发少女",
+        "character_book": {
+          "name": "b",
+          "entries": [
+            {
+              "id": 1,
+              "keys": [
+                "雪"
+              ],
+              "content": "后置条目",
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "after_char",
+              "extensions": {
+                "position": 1
+              }
+            }
+          ]
+        }
+      }
+    },
+    "chat": [
+      {
+        "role": "user",
+        "content": "下雪了"
+      }
+    ],
+    "settings": null,
+    "seed": 1234
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Write 小雪's next reply in a fictional chat between 小雪 and User.\n白发少女\n后置条目"
+      },
+      {
+        "role": "user",
+        "content": "下雪了"
+      }
+    ]
+  }
+}

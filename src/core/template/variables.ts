@@ -1,13 +1,13 @@
 /**
  * 模板变量引擎：`{{user}}/{{char}}/自定义变量` 替换。
  *
- * 语法：
- * - `{{user}}` `{{char}}`（大小写不敏感）— 内置宏
- * - `{{var:名字}}` 或 `{{getvar::名字}}` — 自定义变量（ST 宏风格）
- * - `{{setvar:名字=值}}` — 文本内设置变量（高级玩法）
- * - `{{random:a,b,c}}` — 随机选一（美化模板常用）
- * - `{{time}}` `{{date}}` — 时间宏
+ * 自组装透视器（core/st）起，宏求值统一收敛到 core/st/macro.ts（全项目唯一实现，
+ * 支持 pick/roll/setvar 双语法/match 等超集），本模块只保留 TemplateEngine 门面：
+ * render 委托 evaluateMacros，行为与历史版本逐字节兼容（缺失 char/user 保留字面量、
+ * setvar 顺序敏感、random 注入 rng）。
  */
+
+import { evaluateMacros } from '../st/macro';
 
 export interface VariableScope {
   user?: string;
@@ -22,28 +22,9 @@ export class TemplateEngine {
 
   render(template: string): string {
     if (!template) return '';
-    return template
-      .replace(/\{\{setvar:([^=}]+)=([^}]*)\}\}/gi, (_m, name: string, value: string) => {
-        this.scope.vars = { ...(this.scope.vars ?? {}), [name.trim()]: value };
-        return '';
-      })
-      .replace(/\{\{(user|char)\}\}/gi, (_m, which: string) => {
-        const w = which.toLowerCase();
-        if (w === 'user') return this.scope.user ?? '{{user}}';
-        return this.scope.char ?? '{{char}}';
-      })
-      .replace(/\{\{(?:var|getvar)::?([^}]+)\}\}/gi, (_m, name: string) => {
-        const v = this.scope.vars?.[name.trim()];
-        return v === undefined || v === null ? '' : String(v);
-      })
-      .replace(/\{\{random:([^}]+)\}\}/gi, (_m, list: string) => {
-        const items = list.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-        if (!items.length) return '';
-        const rng = this.scope.rng ?? Math.random;
-        return items[Math.floor(rng() * items.length)]!;
-      })
-      .replace(/\{\{time\}\}/gi, () => new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
-      .replace(/\{\{date\}\}/gi, () => new Date().toLocaleDateString('zh-CN'));
+    const result = evaluateMacros(template, this.scope);
+    this.scope.vars = result.vars;
+    return result.text;
   }
 }
 

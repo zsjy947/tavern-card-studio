@@ -4,7 +4,8 @@
  * 每个场景 = 一份 tests/fixtures/st-golden/<name>.json（input + expected.messages）。
  * 断言：assemblePrompt 产出的分段按同角色相邻合并后与 expected 逐字节一致。
  * 这是世界书引擎/正则管线/组装顺序的回归底线；真机黄金样本（ST 实机导出，
- * 见 docs/st-golden-guide.md）落在同目录并以 source:"real-st" 标记，同一机制校验。
+ * 校准流程见本地文档 docs/st-golden-guide.md，不入库）落在同目录并以
+ * source:"real-st" 标记，同一机制校验。
  *
  * 更新方式：语义有意变更后跑 `UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结，
  * 再人工检查 diff（冻结产物进 git，可逐字节审）。
@@ -13,10 +14,10 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assemblePrompt, ST_DEFAULT_SETTINGS, type AssembledSegment } from '../src/core/st';
+import { assemblePrompt, ST_DEFAULT_SETTINGS } from '../src/core/st';
 import { parseLooseCard } from '../src/core/card/normalize';
+import { mergeSegmentsForExport } from '../src/services/xrayService';
 import { makeChat, type MakeChatItem } from './factories/card';
-
 const DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'st-golden');
 const UPDATE = process.env.UPDATE_GOLDEN === '1';
 
@@ -195,16 +196,6 @@ const scenarios: GoldenScenario[] = [
   },
 ];
 
-function mergeSegments(segments: AssembledSegment[]): { role: string; content: string }[] {
-  const out: { role: string; content: string }[] = [];
-  for (const s of segments) {
-    const last = out[out.length - 1];
-    if (last && last.role === s.role) last.content += `\n${s.content}`;
-    else out.push({ role: s.role, content: s.content });
-  }
-  return out;
-}
-
 describe('ST 组装黄金样本（合成卡）', () => {
   it('场景数 ≥ 10（防场景表被误清）', () => {
     expect(scenarios.length).toBeGreaterThanOrEqual(10);
@@ -215,7 +206,7 @@ describe('ST 组装黄金样本（合成卡）', () => {
       if (UPDATE) mkdirSync(DIR, { recursive: true });
       const settings = { ...ST_DEFAULT_SETTINGS, ...(sc.settings ?? {}) };
       const result = assemblePrompt(parseLooseCard(sc.card), makeChat(sc.chat), settings, sc.seed ?? 1234);
-      const merged = mergeSegments(result.segments);
+      const merged = mergeSegmentsForExport(result.segments);
       const file = join(DIR, `${sc.name}.json`);
       if (UPDATE) {
         writeFileSync(

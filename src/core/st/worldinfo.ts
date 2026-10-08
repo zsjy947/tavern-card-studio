@@ -13,6 +13,10 @@
  * - 正则脚本 placement=5（世界书）不参与扫描文本改写（M1 不支持）
  * - NOT_ANY/NOT_ALL 的 secondary 语义（全部命中才算失败 / 有未命中即通过）
  *   以文档为准，待真机样本校准
+ * - 递归通道不复查 secondary 键（delayUntilRecursion 条目在递归命中即激活；
+ *   ST 的 selective 语义在递归中的行为文档未述，待校准）
+ * - keyword 激活的 messageIndex 归因为当前回放楼（窗口末楼），非键实际命中楼
+ * - 组选举 groupWeight 全 0 时回退取 order/显示序末位（ST 行为待校准）
  *
  * 条目输入为扁平 WorldInfoEntry（core/lorebook/convert 的产物），外加
  * useRegex 旁路（BookEntry.use_regex 不在扁平模型里，由调用方携带）。

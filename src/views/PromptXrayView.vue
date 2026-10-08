@@ -2,9 +2,10 @@
 /**
  * 组装透视（试卡闭环 M1）：选卡 + 手工编辑对话 + ST 骨架参数 → 实时组装预览。
  * 纯本地计算不调 LLM；同 seed 重放一致。语义近似项在"说明"折叠面板内列明，
- * 真机校准流程见 docs/st-golden-guide.md。
+ * 真机校准流程见本地文档 docs/st-golden-guide.md（不入库）。
  */
 import { computed, onMounted, ref, watch } from 'vue';
+import { watchDebounced } from '@vueuse/core';
 import {
   NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem,
   NInput, NInputNumber, NAlert, NTabs, NTabPane,
@@ -68,18 +69,23 @@ function resetSettings() {
   message.success('已恢复 ST 默认');
 }
 
-/* ---- 组装（纯本地即时计算） ---- */
-const assembly = computed<{ result: AssembleResult; merged: { role: string; content: string }[] } | { error: string } | null>(() => {
-  if (!loadedCard.value) return null;
+/* ---- 组装（防抖重算：逐楼回放 + BPE 计数对长对话不便宜，输入停顿后再算） ---- */
+const assembly = ref<{ result: AssembleResult; merged: { role: string; content: string }[] } | { error: string } | null>(null);
+function reassemble() {
+  if (!loadedCard.value) {
+    assembly.value = null;
+    return;
+  }
   try {
     const st = createChatState(loadedCard.value, settings.value.userName);
     for (const it of chatItems.value) pushMessage(st, it.role, it.content);
     const result = runAssembly(loadedCard.value, st, settings.value, seed.value);
-    return { result, merged: mergeSegmentsForExport(result) };
+    assembly.value = { result, merged: mergeSegmentsForExport(result.segments) };
   } catch (e) {
-    return { error: (e as Error).message };
+    assembly.value = { error: (e as Error).message };
   }
-});
+}
+watchDebounced([loadedCard, chatItems, settings, seed], reassemble, { deep: true, debounce: 300, maxWait: 800 });
 const result = computed(() => (assembly.value && 'result' in assembly.value ? assembly.value.result : null));
 
 const wiActivated = computed(() => result.value?.wiTraces.filter((t) => t.activated) ?? []);
@@ -166,7 +172,7 @@ async function exportTextFile() {
         <NCollapseItem title="说明：模拟范围与近似项" name="about">
           <div class="about-body">
             <p><b>模拟范围</b>：卡字段、卡内世界书（蓝绿灯/逻辑/概率/组/递归/超时效果/预算）、卡内正则脚本（双通路）、ST 默认骨架参数。</p>
-            <p><b>已知近似</b>（真机黄金样本校准中，见 docs/st-golden-guide.md）：示例对话不拆轮次；use_group_scoring 降级为纯权重选举；cooldown 自激活楼起算；预算按宏展开前原文计 token；正则 placement=5 不参与扫描文本。</p>
+            <p><b>已知近似</b>（真机黄金样本校准中，流程见本地文档 st-golden-guide.md，不入库）：示例对话不拆轮次；use_group_scoring 降级为纯权重选举；cooldown 自激活楼起算；预算按宏展开前原文计 token；正则 placement=5 不参与扫描文本；递归通道不复查 secondary 键；键命中楼层按回放末楼归因；时间/日期宏取组装时刻（同 seed 跨时刻重放一致需固定时间锚）；字面量正则显式非 g 标志仅替换首处。</p>
             <p><b>明确不支持</b>：消息树/群聊、instruct 模板与文本补全模式、酒馆全局世界书/预设导入、向量检索、酒馆助手脚本执行。</p>
           </div>
         </NCollapseItem>
@@ -205,7 +211,7 @@ async function exportTextFile() {
                 <NTag size="tiny" :bordered="false" :type="roleType[seg.role]">{{ seg.role }}</NTag>
                 <span class="seg-label">{{ seg.label }}</span>
                 <span class="seg-source">{{ seg.source }}</span>
-                <span class="seg-tokens"><TokenBadge :text="seg.content" :label="`${seg.tokens} tok`" /></span>
+                <span class="seg-tokens"><TokenBadge :text="seg.content" :tokens="seg.tokens" :label="`${seg.tokens} tok`" /></span>
               </div>
               <pre class="seg-content">{{ seg.content }}</pre>
             </div>

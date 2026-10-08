@@ -10,13 +10,19 @@
  * - EMTop/EMBottom(5/6) 挂示例对话段前后；无示例段时挂历史前
  *
  * rng 消耗顺序固定：先世界书回放，再按段序宏展开——同 seed 全量重放一致。
+ *
+ * 其余已知近似（文档未明确 / 有意从简，待真机样本校准）：
+ * - 历史中 role:'system' 的消息正则 placement 按 AI_OUTPUT 过滤（ChatState 类型
+ *   允许 system 楼，当前 UI 不产出；若未来产出需补 placement 规则）
+ * - {{time}}/{{date}} 默认取组装开始时刻（单次组装内一致）；跨时刻全量重放
+ *   一致需调用方经 now 参数注入固定时间
  */
 
 import { regexScriptSchema, type AnyCard, type RegexScript } from '../card/schema';
 import { WI_POSITION, WI_ROLE } from '../lorebook/convert';
 import { countTokens } from '../stats/tokens';
 import { REGEX_PLACEMENT } from '../regex/model';
-import type { ChatState } from './chat';
+import { depthFromEnd, type ChatState } from './chat';
 import { evaluateMacros, type MacroContext } from './macro';
 import { mulberry32 } from './rng';
 import { ST_DEFAULT_SETTINGS, type ChatRole, type StSettings } from './settings';
@@ -75,22 +81,23 @@ export function assemblePrompt(
   chat: ChatState,
   settings: StSettings = ST_DEFAULT_SETTINGS,
   seed = 1234,
+  /** {{time}}/{{date}} 的时间锚点；缺省取组装开始时刻，注入可实现跨时刻重放一致 */
+  now = new Date(),
 ): AssembleResult {
   const data = card.data as Record<string, unknown>;
   const warnings: string[] = [];
   const vars: Record<string, unknown> = { ...chat.vars };
-  const now = new Date();
   const char = String(data.name ?? '');
-  const macroBase = (): MacroContext => ({ char, user: settings.userName, vars, rng, now });
 
   /* ---- 世界书先行（rng 消耗顺序固定） ---- */
   const rng = mulberry32(seed);
+  const macroBase = (): MacroContext => ({ char, user: settings.userName, vars, rng, now });
   const { entries: wiEntries, book } = cardWorldInfoEntries(card);
   const wi = runWorldInfo({ entries: wiEntries, chat, settings, rng, book });
 
   /* ---- 宏展开（vars 顺序演化：setvar 对后续段可见） ---- */
   const expand = (raw: string): string => {
-    const r = evaluateMacros(raw, { char, user: settings.userName, vars, rng, now });
+    const r = evaluateMacros(raw, macroBase());
     Object.assign(vars, r.vars);
     warnings.push(...r.warnings);
     return r.text;
@@ -139,9 +146,9 @@ export function assemblePrompt(
     const placement = m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT;
     const run = applyRegexPipeline(scripts, expanded, {
       placement,
-      depthFromEnd: chat.messages.length - 1 - i,
+      depthFromEnd: depthFromEnd(i, chat.messages.length),
       path: 'prompt',
-      macroCtx: { char, user: settings.userName, vars, rng, now },
+      macroCtx: macroBase(),
     });
     warnings.push(...run.warnings);
     regexTraces.push(...run.traces);
@@ -218,7 +225,7 @@ export function assemblePrompt(
     const disp = applyRegexPipeline(scripts, raw, {
       placement: REGEX_PLACEMENT.MD_DISPLAY,
       path: 'display',
-      macroCtx: { char, user: settings.userName, vars, rng, now },
+      macroCtx: macroBase(),
     });
     warnings.push(...disp.warnings);
     regexTraces.push(...disp.traces);

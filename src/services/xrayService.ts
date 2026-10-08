@@ -5,7 +5,7 @@
  */
 
 import type { AnyCard } from '@/core/card/schema';
-import { assemblePrompt, type AssembleResult, type StSettings, type WiEntryTrace } from '@/core/st';
+import { assemblePrompt, type AssembledSegment, type AssembleResult, type StSettings, type WiEntryTrace } from '@/core/st';
 import type { ChatState } from '@/core/st/chat';
 
 export type { AssembleResult, StSettings };
@@ -15,9 +15,9 @@ export function runAssembly(card: AnyCard, chat: ChatState, settings: StSettings
 }
 
 /** 同角色相邻段合并（与黄金 fixture 门禁同口径，供与真机导出 diff） */
-export function mergeSegmentsForExport(result: AssembleResult): { role: string; content: string }[] {
+export function mergeSegmentsForExport(segments: AssembledSegment[]): { role: string; content: string }[] {
   const out: { role: string; content: string }[] = [];
-  for (const s of result.segments) {
+  for (const s of segments) {
     const last = out[out.length - 1];
     if (last && last.role === s.role) last.content += `\n${s.content}`;
     else out.push({ role: s.role, content: s.content });

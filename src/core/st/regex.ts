@@ -12,6 +12,8 @@
  *
  * 已知边界（写进 ARCHITECTURE 明确不支持清单）：宏展开写入的变量不回写对话状态
  * （replaceString 中的 setvar 极罕见）；runOnEdit 仅编辑器测试台语义，不参与组装。
+ * 近似：字面量写法带显式非 g 标志（如 /x/i）时仅替换首个匹配（JS replace 原生
+ * 语义），无标志时自动补 g 全量替换；真机行为待黄金样本校准。
  */
 
 import { compileFindRegex } from '../regex/model';

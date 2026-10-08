@@ -200,4 +200,19 @@ describe('正则与汇总', () => {
     expect(r.scanText).toBe('下雪了');
     expect(r.budgetTokens).toBe(2048);
   });
+
+  it('{{time}}/{{date}}：注入 now 后同 seed 跨时刻全量重放一致', () => {
+    const card = makeCard({ data: { first_mes: '今天{{date}} {{time}}', description: '{{time}}见' } });
+    const chat = makeChat([{ role: 'assistant', content: '现在 {{time}}' }]);
+    const noon = new Date(2026, 0, 1, 12, 30);
+    const evening = new Date(2026, 0, 1, 20, 45);
+    const a1 = assemblePrompt(card, chat, settings({ mainPrompt: '' }), 42, noon);
+    const a2 = assemblePrompt(card, chat, settings({ mainPrompt: '' }), 42, noon);
+    expect(a1.segments).toStrictEqual(a2.segments);
+    expect(a1.segments[0]!.content).toBe('12:30见'); // 描述段的时间宏取注入锚点
+    // 换时间锚点则跟随：时间宏取注入值而非运行时刻
+    const a3 = assemblePrompt(card, chat, settings({ mainPrompt: '' }), 42, evening);
+    expect(a3.segments[0]!.content).toBe('20:45见');
+    expect(a3.segments).not.toStrictEqual(a1.segments);
+  });
 });

@@ -1,10 +1,10 @@
 /**
  * 模板变量引擎：`{{user}}/{{char}}/自定义变量` 替换。
  *
- * 自组装透视器（core/st）起，宏求值统一收敛到 core/st/macro.ts（全项目唯一实现，
- * 支持 pick/roll/setvar 双语法/match 等超集），本模块只保留 TemplateEngine 门面：
- * render 委托 evaluateMacros，行为与历史版本逐字节兼容（缺失 char/user 保留字面量、
- * setvar 顺序敏感、random 注入 rng）。
+ * 自组装透视器（core/st）起，宏求值统一收敛到 core/st/macro.ts（全项目唯一实现），
+ * 本模块只保留 TemplateEngine 门面：render 委托 evaluateMacros。行为与历史版本
+ * 兼容——既有宏语义逐字节一致（缺失 char/user 保留字面量、setvar 顺序敏感、
+ * random 注入 rng）；{{pick}}/{{roll}}/{{match}} 从保留字面量变为可求值，属超集增强。
  */
 
 import { evaluateMacros } from '../st/macro';

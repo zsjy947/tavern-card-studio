@@ -1,6 +1,6 @@
 [package]
 name = "tavern-card-studio"
-version = "1.0.0"
+version = "1.0.1"
 description = "本地桌面端 SillyTavern 角色卡工作站"
 authors = ["Gabriel-Xie"]
 edition = "2021"

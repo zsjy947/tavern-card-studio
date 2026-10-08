@@ -1,7 +1,7 @@
 {
   "name": "tavern-card-studio",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "本地桌面端 SillyTavern 角色卡工作站：转换、编辑、模板美化、AI 辅助生成、诊断修复、同人卡工坊",
   "type": "module",
   "scripts": {

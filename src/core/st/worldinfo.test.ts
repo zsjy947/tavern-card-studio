@@ -62,6 +62,14 @@ describe('基础激活', () => {
     expect(widened.traces[0]!.activated).toBe(true);
   });
 
+  it('书级 scan_depth 在条目未指定时生效', () => {
+    const chat = chatOf({ role: 'user', content: '下雪' }, { role: 'assistant', content: '晴天' });
+    const narrow = run([entry(1, { key: ['雪'] })], chat, { ...baseSettings(), wiScanDepth: 1 });
+    expect(narrow.traces[0]!.activated).toBe(false);
+    const widened = run([entry(1, { key: ['雪'] })], chat, { ...baseSettings(), wiScanDepth: 1 }, fixedRng(0), { scanDepth: 2 });
+    expect(widened.traces[0]!.activated).toBe(true);
+  });
+
   it('大小写默认不敏感；条目级 caseSensitive 收紧', () => {
     const chat = chatOf({ role: 'user', content: 'the Snow falls' });
     expect(run([entry(1, { key: ['snow'] })], chat).traces[0]!.activated).toBe(true);
@@ -79,6 +87,13 @@ describe('基础激活', () => {
 
   it('use_regex 键按正则解释', () => {
     const r = run([entry(1, { key: ['/雪+天/'], useRegex: true })], chatOf({ role: 'user', content: '今雪雪天转晴' }));
+    expect(r.traces[0]!.activated).toBe(true);
+  });
+
+  it('use_regex 键跨楼复用缓存不受 lastIndex 污染', () => {
+    // 楼1 窗口命中后 lastIndex 停在 2；楼2 窗口的 '雪' 在 idx 0，不复位将漏配
+    const chat = chatOf({ role: 'user', content: '下雪' }, { role: 'assistant', content: '雪停了' });
+    const r = run([entry(1, { key: ['/雪/'], useRegex: true })], chat, { ...baseSettings(), wiScanDepth: 1 });
     expect(r.traces[0]!.activated).toBe(true);
   });
 

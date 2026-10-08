@@ -128,7 +128,10 @@ function keyMatcher(key: string, text: string, e: WiSourceEntry, settings: StSet
       }
       cache.set(k, re);
     }
-    return re ? re.test(text) : false;
+    if (!re) return false;
+    // compileFindRegex 恒为全局正则；.test() 受 lastIndex 状态影响，缓存跨条目/跨楼复用前必须复位
+    re.lastIndex = 0;
+    return re.test(text);
   }
   const wholeWords = e.matchWholeWords ?? settings.wiMatchWholeWords;
   if (wholeWords && /^[\w][\w-]*$/.test(k)) {
@@ -215,7 +218,8 @@ export function runWorldInfo(opts: {
     const soFar = step < 0 ? [] : messages.slice(0, step + 1);
     const windowTextFor = (depth: number): string =>
       soFar.slice(Math.max(0, soFar.length - depth)).map((m) => m.content).join('\n');
-    const defaultWindow = windowTextFor(settings.wiScanDepth);
+    // 条目未指定 scanDepth 时的默认窗口：书级 scan_depth 覆盖优先于全局设置
+    const defaultWindow = windowTextFor(Math.max(1, book.scanDepth ?? settings.wiScanDepth));
 
     const activated = new Map<number, Activation>();
     const skips = new Map<number, WiSkipReason>();

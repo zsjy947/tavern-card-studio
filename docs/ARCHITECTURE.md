@@ -110,17 +110,17 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 - 阈值可调，供 UI 与卡医 skill 复用。
 
 ### st（ST 无头组装运行时，迭代八 / 试卡闭环 M1）
-> **AGPL 红线**：SillyTavern 是 AGPL-3.0，本模块为按公开文档（docs.sillytavern.app）与真机运行时导出样本的**独立重实现**，严禁参照或复制 ST 源码。语义锚定 = 官方文档 + 黄金 fixture（`tests/fixtures/st-golden/`，校准流程 [st-golden-guide.md](./st-golden-guide.md)）。
+> **AGPL 红线**：SillyTavern 是 AGPL-3.0，本模块为按公开文档（docs.sillytavern.app）与真机运行时导出样本的**独立重实现**，严禁参照或复制 ST 源码。语义锚定 = 官方文档 + 黄金 fixture（`tests/fixtures/st-golden/`）；真机校准的对照实验设计（同卡同对话 + ST 全默认、逐样本单语义点、记录 ST 版本、token 数值允许偏差）与操作步骤在本地文档 `docs/st-golden-guide.md`（**不入库**，.gitignore）。
 
 - 全部纯函数、无 DOM、**禁用裸 Math.random**——一切随机（probability 掷骰/组选举/`{{random}}`）经 `rng.ts` 的 mulberry32 seeded RNG，同 seed 同输入重放一致。rng 消耗顺序固定：先世界书回放，再按段序宏展开。
 - `settings.ts`：`StSettings` ST 骨架参数（主提示词/NSFW/PHI/人设/作者注释/扫描深度/预算%/递归步数等），带 ST 默认值、逐项注明出处与「待真机样本校准」标记。**卡内视角模拟**：只完整模拟卡驱动部分，不解析 ST settings/preset/全局世界书。
 - `macro.ts`：**全项目唯一宏求值器**（`template/variables.ts` 已委托；`regex/model.ts` 的旧 expandMacros 留给编辑器测试台不动）。支持 user/char/random/pick/roll/time/date/setvar 双语法/getvar/var/match；未知宏保留字面量 + warnings。单次线性扫描，setvar 对后续宏可见。
 - `chat.ts`：线性 `ChatState`（无消息树/swipe/群聊），变量表 + timedEffects 截止楼计数存储；`depthFromEnd` 为深度度量（末条 = 0）。
-- `worldinfo.ts`：激活引擎，逐楼回放（step=-1 表示空对话，蓝灯仍注入）。键匹配（大小写/整词——拉丁词形键用词边界、CJK 回退子串/`use_regex`）→ selectiveLogic 四逻辑 → constant → probability → group 选举（groupOverride 强制；**use_group_scoring 降级为纯 groupWeight 权重**）→ 递归（prevent=不作递归源 / exclude=不可被递归激活 / delayUntilRecursion=仅递归通道，逐激活源归因，maxRecursionSteps 封顶）→ timedEffects（sticky 免键维持不刷新截止楼 / cooldown 自激活楼起算【近似】/ delay）→ 预算填充（order 降序优先、minActivations 回补、ignoreBudget 豁免；按宏展开前原文计 token）。逐条目 trace：激活（constant/keyword/recursive/sticky）与未激活（disabled/vectorized/no-key-match/secondary-failed/delayed/cooldown/probability-failed/group-lost/budget-dropped/delay-until-recursion/recursion-disabled）词汇表。
-- `regex.ts`：消息级正则管线（与 `regex/model.ts` 单脚本原语分工，后者不动）。placement 过滤 / minDepth·maxDepth 深度过滤 / **promptOnly vs markdownOnly 双通路**（发送态与显示态是两条链）/ `{{match}}`（转原生 `$&` 保 `$1` 捕获组语义）/ substituteRegex 1·2 / trimStrings。
-- `assemble.ts`：顶层组装 `(card, chat, settings, seed) → AssembleResult`。消息序按 ST 文档默认序：主提示词 → 世界书·前置 → 人设 → 描述/性格/场景 → 世界书·后置 → NSFW → 示例对话 → 历史（作者注释 + ANTop/ANBottom 挂 AN 注入点、atDepth 按楼插队）→ 卡片 PHI → 全局 PHI。逐段 source 标签 + token 分解；setvar 变量按段序演化；末条 AI 消息给出发送态/显示态正则对照（regexPreview）。
+- `worldinfo.ts`：激活引擎，逐楼回放（step=-1 表示空对话，蓝灯仍注入）。键匹配（大小写/整词——拉丁词形键用词边界、CJK 回退子串/`use_regex`）→ selectiveLogic 四逻辑 → constant → probability → group 选举（groupOverride 强制；**use_group_scoring 降级为纯 groupWeight 权重**）→ 递归（prevent=不作递归源 / exclude=不可被递归激活 / delayUntilRecursion=仅递归通道，逐激活源归因，maxRecursionSteps 封顶）→ timedEffects（sticky 免键维持不刷新截止楼 / cooldown 自激活楼起算【近似】/ delay）→ 预算填充（order 降序优先、minActivations 回补、ignoreBudget 豁免；按宏展开前原文计 token）。逐条目 trace：激活（constant/keyword/recursive/sticky）与未激活（disabled/vectorized/no-key-match/secondary-failed/delayed/cooldown/probability-failed/group-lost/budget-dropped/delay-until-recursion/recursion-disabled）词汇表。文件头「近似」清单：cooldown 起算点、use_group_scoring 降级、递归逐源匹配（ST 为累积缓冲区整体扫描）、预算原文计 token、placement=5 不改写扫描文本、NOT_ANY/NOT_ALL secondary 语义、**递归通道不复查 secondary 键**、**keyword 楼层归因为回放末楼**、**组权重全 0 回退取序末位**——后三项待真机校准。
+- `regex.ts`：消息级正则管线（与 `regex/model.ts` 单脚本原语分工，后者不动）。placement 过滤 / minDepth·maxDepth 深度过滤 / **promptOnly vs markdownOnly 双通路**（发送态与显示态是两条链）/ `{{match}}`（转原生 `$&` 保 `$1` 捕获组语义）/ substituteRegex 1·2 / trimStrings。近似：字面量显式非 g 标志（如 `/x/i`）仅替换首个匹配（JS 原生语义），无标志自动补 g。
+- `assemble.ts`：顶层组装 `(card, chat, settings, seed, now?) → AssembleResult`。消息序按 ST 文档默认序：主提示词 → 世界书·前置 → 人设 → 描述/性格/场景 → 世界书·后置 → NSFW → 示例对话 → 历史（作者注释 + ANTop/ANBottom 挂 AN 注入点、atDepth 按楼插队）→ 卡片 PHI → 全局 PHI。逐段 source 标签 + token 分解；setvar 变量按段序演化；末条 AI 消息给出发送态/显示态正则对照（regexPreview）。`now` 为 {{time}}/{{date}} 的时间锚（缺省组装开始时刻，单次运行内一致；注入固定值即可跨时刻全量重放一致）。历史中 role:'system' 消息按 AI_OUTPUT 走 placement 过滤（类型允许、当前 UI 不产出）。
 - **明确不支持清单**（UI「说明」面板同步展示）：消息树/swipe/群聊；instruct 模板与文本补全组装模式；ST 全局世界书/preset/settings 导入；向量检索（vectorized 条目跳过并标注）；use_group_scoring 精确评分（降级权重选举）；酒馆助手卡内 JS 执行（M3 起由 TS 侧 Zod clamp 替代）；正则 placement=5 改写扫描文本。
-- `services/xrayService.ts`：薄编排（组装 + 合并同角色相邻段 + JSON/文本导出），视图零核心编排；`PromptXrayView`（`/xray`）选卡 + 手工编对话 + 骨架参数 + seed 即时重算，导出物可直接与真机导出 diff。
+- `services/xrayService.ts`：薄编排（组装 + 合并同角色相邻段 + JSON/文本导出），视图零核心编排；`PromptXrayView`（`/xray`）选卡 + 手工编对话 + 骨架参数 + seed **防抖重算**（300ms/最长 800ms——逐楼回放 + BPE 对长对话不便宜；逐段 TokenBadge 传组装器计数免二次编码），导出物可直接与真机导出 diff。
 
 ## db：三驱动等价性
 
@@ -237,8 +237,8 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 
 ## 测试策略
 
-- vitest 342 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
-- **黄金 fixture 门禁**（迭代八）：`tests/fixtures/st-golden/*.json` 12 个合成场景冻结组装器的消息结构（块序/世界书语义/正则双通路/宏/注入点），`UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结后人工审 diff；真机样本（source:"real-st"）落同目录走同一校验。
+- vitest 347 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
+- **黄金 fixture 门禁**（迭代八）：`tests/fixtures/st-golden/*.json` 12 个合成场景冻结组装器的消息结构（块序/世界书语义/正则双通路/宏/注入点），`UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结后人工审 diff；真机样本（source:"real-st"）落同目录走同一校验。真机校准的导出操作步骤为本地文档 `docs/st-golden-guide.md`（不入库）。
 - Rust cargo test（字体文件名与 font_exists、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client）。
 - E2E（@playwright/test + connectOverCDP 附加真实 WebView2，规避自带 Chromium 假信心）：金路径 spec + `scripts/e2e-dev.mjs`（CDP 端口启动）；本机 `npm run e2e` 为准入门槛，CI 无头环境起步 continue-on-error。
 - 浏览器冒烟（已执行多轮）：11 页面渲染、空白模板手填入库全流程、编辑器七 Tab、成员面板、美化变量工作台与多人群像预览、原始 JSON 抽屉、双主题切换、指南 sticky 几何实测。

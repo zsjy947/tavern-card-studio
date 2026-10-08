@@ -23,3 +23,6 @@ src-tauri/gen/
 
 # ZCode 工作区
 .zcode/
+
+# 真机校准操作指引：本地文档，不入库（要点已沉淀进 ARCHITECTURE/ROADMAP）
+docs/st-golden-guide.md

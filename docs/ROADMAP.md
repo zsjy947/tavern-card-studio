@@ -17,12 +17,13 @@
 
 ## 二、下一迭代
 
-> **迭代八（第一阶段）：组装透视器——试卡闭环 M1，已于 2026-10-05 在 `feat/prompt-xray` 分支实施完成**：
+> **迭代八（第一阶段）：组装透视器——试卡闭环 M1，2026-10-05 在 `feat/prompt-xray` 分支实施完成，已并入 master**：
 > core/st 无头组装引擎（世界书激活 / 统一宏求值 / 正则双通路 / prompt 组装 / 逐条 trace，全纯函数 + seeded RNG）、
 > 黄金 fixture 门禁（`tests/fixtures/st-golden/`，`UPDATE_GOLDEN=1` 重冻结）、真实卡组装冒烟、`/xray` 视图。
-> 架构与语义边界见 ARCHITECTURE.md 的 core/st 章节。
+> 合并时审查修复：世界书键匹配缓存正则的 lastIndex 复位、书级 scan_depth 生效、组装器时间锚可注入、
+> `/xray` 防抖重算与逐段 token 免二次编码。架构与语义边界见 ARCHITECTURE.md 的 core/st 章节。
 
-1. **真机黄金样本校准（M1 收口，待人工配合）**：按 [st-golden-guide.md](./st-golden-guide.md) 从真酒馆导出 5~10 份实际 prompt 样本转成 fixture，修组装器至逐段 diff=0。优先级最高的语义点：消息组装顺序、示例对话形态（当前保守单段）、世界书预算填充顺序。
+1. **真机黄金样本校准（M1 收口，待人工配合）**：按本地文档 `st-golden-guide.md`（不入库；要点：同一张卡 + 同一段对话 + ST 全默认，逐样本只混一个语义点，记录 ST 版本，token 数值允许偏差）从真酒馆导出 5~10 份实际 prompt 样本转成 fixture，修组装器至逐段 diff=0。优先级最高的语义点：消息组装顺序、示例对话形态（当前保守单段）、世界书预算填充顺序、NOT_ANY/NOT_ALL secondary 语义、递归通道 secondary 复查、cooldown 起算点。
 2. **MVU/流式真机验收与修复**（原迭代七保留项）：按 §一 MVU 验收清单逐项走查；同时验证攒批后长回复的流式观感。发现问题只修不改架构。此验收同时是试卡闭环 M3（MVU 变量运行时）的语义前提。
 3. **E2E 进 CI（Windows runner）**：`e2e` job 在 windows-latest 启动 dev + CDP，起步 `continue-on-error: true` 收集稳定性数据，连续绿 10 次后转为必须项；备选退路 tauri-driver + WebdriverIO。
 4. **AI 状态栏与 MVU 变量清单闭环**：应用 AI 状态栏后，把 AI 变量清单与 `tcsMvuVarGroups` 做一次同步合并（新增路径自动进 initvar/更新规则，减少人工审查）；漂移清单（变量 Tab）支持一键「补充定义」。

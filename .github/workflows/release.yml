@@ -36,6 +36,18 @@ jobs:
       # 草稿 release 之外再收一份 workflow artifact（collect-release.mjs 只做产物收集，不触发构建）
       - name: Collect artifacts
         run: node scripts/collect-release.mjs
+      # 便携版随 release 一并附上：zip 内仅单文件 exe（WebView2 为系统组件），
+      # 发布草稿时即与安装包同出。此前 v1.0.0 为人工附加，此步自动化。
+      - name: Upload portable bundle
+        if: startsWith(github.ref_name, 'v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $zip = "release/tavern-card-studio_${version}_x64-portable.zip"
+          Compress-Archive -Path "release/portable/tavern-card-studio.exe" -DestinationPath $zip -Force
+          gh release upload "$env:GITHUB_REF_NAME" $zip --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: release-bundles

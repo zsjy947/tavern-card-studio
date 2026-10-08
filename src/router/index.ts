@@ -19,6 +19,7 @@ export const router = createRouter({
         { path: 'templates', name: 'templates', component: () => import('@/views/TemplateCenterView.vue'), meta: { title: '模板中心' } },
         { path: 'ai', name: 'ai', component: () => import('@/views/AiCenterView.vue'), meta: { title: 'AI 中心' } },
         { path: 'diagnosis', name: 'diagnosis', component: () => import('@/views/DiagnosisView.vue'), meta: { title: '诊断与调整' } },
+        { path: 'xray', name: 'xray', component: () => import('@/views/PromptXrayView.vue'), meta: { title: '组装透视' } },
         { path: 'novel', name: 'novel', component: () => import('@/views/NovelWorkshopView.vue'), meta: { title: '同人卡工坊' } },
         { path: 'stats', name: 'stats', component: () => import('@/views/StatsView.vue'), meta: { title: '统计看板' } },
         { path: 'settings', name: 'settings', component: () => import('@/views/SettingsView.vue'), meta: { title: '设置与备份' } },

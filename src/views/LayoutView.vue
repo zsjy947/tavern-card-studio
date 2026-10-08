@@ -11,7 +11,7 @@ import {
   AlbumsOutline, SwapHorizontalOutline, CreateOutline, ColorPaletteOutline,
   LayersOutline, CloudOutline, MedicalOutline, BookOutline, StatsChartOutline,
   SettingsOutline, SparklesOutline, TerminalOutline, GitCompareOutline,
-  SchoolOutline, CheckmarkOutline, OptionsOutline,
+  SchoolOutline, CheckmarkOutline, OptionsOutline, EyeOutline,
 } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
 import { useAppearance } from '@/stores/appearance';
@@ -44,6 +44,7 @@ const menuOptions = computed(() => [
   { label: t('nav.templates'), key: '/templates', icon: icon(LayersOutline) },
   { label: t('nav.ai'), key: '/ai', icon: icon(CloudOutline) },
   { label: t('nav.diagnosis'), key: '/diagnosis', icon: icon(MedicalOutline) },
+  { label: t('nav.xray'), key: '/xray', icon: icon(EyeOutline) },
   { label: t('nav.novel'), key: '/novel', icon: icon(BookOutline) },
   { label: t('nav.stats'), key: '/stats', icon: icon(StatsChartOutline) },
   { label: t('nav.settings'), key: '/settings', icon: icon(SettingsOutline) },

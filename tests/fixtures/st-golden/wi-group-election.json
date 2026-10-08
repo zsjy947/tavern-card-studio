@@ -1,0 +1,68 @@
+{
+  "name": "wi-group-election",
+  "description": "同组条目按 groupWeight 选举出一条（本 seed 下低 order 者胜）",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {},
+        "character_book": {
+          "name": "b",
+          "entries": [
+            {
+              "id": 1,
+              "keys": [
+                "键"
+              ],
+              "content": "甲（order 200）",
+              "insertion_order": 200,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {
+                "group": "g",
+                "group_weight": 50
+              }
+            },
+            {
+              "id": 2,
+              "keys": [
+                "键"
+              ],
+              "content": "乙（order 100）",
+              "insertion_order": 100,
+              "enabled": true,
+              "position": "before_char",
+              "extensions": {
+                "group": "g",
+                "group_weight": 50
+              }
+            }
+          ]
+        }
+      }
+    },
+    "chat": [
+      {
+        "role": "user",
+        "content": "键"
+      }
+    ],
+    "settings": null,
+    "seed": 3
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Write 小雪's next reply in a fictional chat between 小雪 and User.\n乙（order 100）"
+      },
+      {
+        "role": "user",
+        "content": "键"
+      }
+    ]
+  }
+}

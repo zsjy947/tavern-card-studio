@@ -1,0 +1,34 @@
+{
+  "name": "macros-in-history",
+  "description": "历史消息宏展开（char/user/random 按 seed 确定性）",
+  "source": "synthetic",
+  "input": {
+    "card": {
+      "spec": "chara_card_v3",
+      "spec_version": "3.0",
+      "data": {
+        "name": "小雪",
+        "extensions": {}
+      }
+    },
+    "chat": [
+      {
+        "role": "assistant",
+        "content": "{{char}}：你好 {{user}}，今天是{{random:红,蓝}}色"
+      }
+    ],
+    "settings": {
+      "userName": "阿明",
+      "mainPrompt": ""
+    },
+    "seed": 5
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "小雪：你好 阿明，今天是蓝色"
+      }
+    ]
+  }
+}

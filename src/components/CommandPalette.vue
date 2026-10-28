@@ -3,7 +3,7 @@
 import { computed, ref, watch } from 'vue';
 import { NModal, NInput, NTag, NEmpty, NIcon } from 'naive-ui';
 import { SearchOutline, ArrowForwardOutline } from '@vicons/ionicons5';
-import { searchCommands, type CommandItem } from '@/composables/useCommandPalette';
+import { searchCommands, resolveText, type CommandItem } from '@/composables/useCommandPalette';
 
 const show = defineModel<boolean>('show', { default: false });
 const query = ref('');
@@ -57,8 +57,8 @@ function onKeydown(e: KeyboardEvent) {
           class="palette-item" :class="{ 'palette-item-active': i === activeIndex }"
           @mouseenter="activeIndex = i" @click="execute(cmd)"
         >
-          <NTag size="tiny" :bordered="false" round>{{ cmd.group }}</NTag>
-          <span class="palette-title">{{ cmd.title }}</span>
+          <NTag size="tiny" :bordered="false" round>{{ resolveText(cmd.group) }}</NTag>
+          <span class="palette-title">{{ resolveText(cmd.title) }}</span>
           <NIcon class="palette-go"><ArrowForwardOutline /></NIcon>
         </div>
       </div>

@@ -21,6 +21,8 @@ import AppearanceSettings from '@/components/AppearanceSettings.vue';
 const message = useMessage();
 const ws = useWorkspace();
 const appearance = useAppearance();
+/* 构建期注入的版本号（vite define ← package.json），模板不能直接引用 ambient 全局故在此中转 */
+const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 const busy = ref('');
 const dbInfo = ref<{ driver: string; tables: Record<string, number> }>({ driver: '', tables: {} });
 const userName = ref('User');
@@ -232,7 +234,7 @@ async function doImport(wipe: boolean) {
 
       <NCard size="small" title="关于">
         <NText depth="3" style="font-size: 13px; line-height: 1.8">
-          <p><b>TavernCard Studio</b> v0.1.0 —— 本地桌面端 SillyTavern 角色卡工作站</p>
+          <p><b>TavernCard Studio</b> v{{ APP_VERSION }} —— 本地桌面端 SillyTavern 角色卡工作站</p>
           <p>· 转换 / 编辑 / 模板美化 / AI 辅助生成 / 诊断修复 / 同人卡工坊</p>
           <p>· 所有数据仅在本地（SQLite / IndexedDB），API Key 不出本机，无遥测</p>
           <p>· PNG 编解码与 SillyTavern 官方实现对齐：读取 ccv3 → chara 回退；导出默认双写</p>

@@ -18,6 +18,7 @@ const appearance = useAppearance();
 
 const cardId = ref<string | null>(null);
 const issues = ref<DiagIssue[]>([]);
+const staticRan = ref(false); // 静态检查已执行（通过时 issues 为空也要显示结果面板，而不是回落到空状态）
 const thresholds = ref({ fieldTokens: 2000, descriptionTokens: 4000, firstMesTokens: 2000 });
 const skills = ref<SkillRow[]>([]);
 const skillId = ref<string | null>(null);
@@ -39,6 +40,7 @@ function runStatic() {
     return;
   }
   issues.value = staticDiagnose(card.value.card, thresholds.value);
+  staticRan.value = true;
   const errs = issues.value.filter((i) => i.severity === 'error').length;
   message.success(errs ? `发现 ${errs} 个错误、${issues.value.length - errs} 个提示` : '静态检查通过');
 }
@@ -118,6 +120,13 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
     </NSpace>
 
     <!-- 注意：不能用 NGrid 直接包 NCard——naive-ui NGrid 只渲染 NGi 子元素，其他内容会被静默丢弃 -->
+    <NCard v-if="staticRan && !issues.length && !doctorBusy && !report" size="small" title="静态检查结果">
+      <NSpace :size="8" align="center">
+        <NTag size="small" :bordered="false" type="success">通过</NTag>
+        <span style="font-size: 13px">未发现问题：结构完整、token 在阈值内、世界书无键冲突/死条目、正则语法合法、无超大嵌图。</span>
+      </NSpace>
+    </NCard>
+
     <NCard v-if="issues.length" size="small" title="静态检查结果" :style="report || doctorBusy ? 'margin-bottom: 14px' : ''">
       <NSpace vertical :size="6">
         <div v-for="(i, idx) in issues" :key="idx" class="diag-row">
@@ -167,7 +176,7 @@ const severityType = { error: 'error', warn: 'warning', info: 'info' } as const;
       </template>
     </NCard>
 
-    <NCard v-if="!issues.length && !report && !doctorBusy" size="small">
+    <NCard v-if="!staticRan && !issues.length && !report && !doctorBusy" size="small">
       <NEmpty description="选择一张卡开始：静态检查无需 AI，秒出结果；AI 诊断给出维度评分与可执行处方">
         <template #icon><NIcon size="42"><MedicalOutline /></NIcon></template>
       </NEmpty>

@@ -61,6 +61,8 @@ const runtimeTag = computed(() => (isTauri()
   ? { text: t('app.mode.desktop'), type: 'success' as const }
   : { text: t('app.mode.browser'), type: 'default' as const }));
 const hasTextChannel = computed(() => ws.activeChannel('text'));
+/* 头部卡数与卡库分类树口径一致：不含回收站（软删除）的卡 */
+const activeCardCount = computed(() => ws.cards.filter((c) => !c.deletedAt).length);
 
 /* ---------------- 主题快捷切换（头部下拉 + 命令面板） ---------------- */
 
@@ -110,6 +112,48 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
 const uninstallShortcuts = installShortcutLayer();
 
+/* 命令注册：setup 阶段即注册（不等 onMounted，避免面板先开而命令未就绪）。
+   标题/分组/关键字用惰性函数注册——i18n 消息懒加载晚于本组件挂载，
+   注册时固化字符串会永久显示原始 key（'command.open' 等）；
+   函数在面板渲染/搜索时才经 t() 解析，消息表就绪与切语言自动跟随 */
+function registerPaletteCommands() {
+  for (const opt of menuOptions.value) {
+    // label 不能捕获注册时的值（i18n 消息晚于注册会固化 raw key）：
+    // 每次解析时从响应式 menuOptions 现取当前语言的文案
+    const labelOf = () => menuOptions.value.find((o) => o.key === opt.key)?.label ?? opt.key;
+    registerCommand({
+      id: `nav:${opt.key}`,
+      title: () => t('command.open', { name: labelOf() }),
+      group: () => t('command.groupNav'),
+      keywords: () => labelOf(),
+      run: () => { void router.push(opt.key); },
+    });
+  }
+  registerCommand({ id: 'nav:/compare', title: () => t('command.compare'), group: () => t('command.groupNav'), keywords: '对比 compare diff', run: () => { void router.push('/compare'); } });
+  registerCommand({ id: 'palette:new-card', title: () => t('command.newCard'), group: () => t('command.groupOps'), keywords: '新建 卡片 create', run: async () => {
+    const { createCard } = await import('@/services/cardService');
+    const row = await createCard('新角色');
+    await ws.refreshCards(true);
+    router.push(`/editor/${row.id}`);
+  } });
+  for (const th of THEMES) {
+    registerCommand({
+      id: `theme:${th.id}`,
+      title: () => t('command.switchTheme', { name: th.label }),
+      group: () => t('command.groupTheme'),
+      keywords: () => `主题 theme ${th.label} ${th.mode === 'dark' ? '深色' : '浅色'}`,
+      run: () => { void appearance.setTheme(th.id); },
+    });
+  }
+}
+function unregisterPaletteCommands() {
+  for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
+  unregisterCommand('nav:/compare');
+  unregisterCommand('palette:new-card');
+  for (const th of THEMES) unregisterCommand(`theme:${th.id}`);
+}
+registerPaletteCommands();
+
 onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown);
   // D3（技术债）：桌面 SQLite 降级提示全局化——挂载即一次性全局通知，不再等用户进设置页
@@ -125,36 +169,13 @@ onMounted(async () => {
   // 启动即拉取卡与渠道：头部徽标（N 张卡 / AI 配置状态）不依赖用户先访问卡库或 AI 中心
   ws.refreshCards(true).catch((e) => console.error('卡列表启动加载失败：', e));
   ws.refreshChannels().catch((e) => console.error('渠道启动加载失败：', e));
-  // 页面导航命令
-  for (const opt of menuOptions.value) {
-    registerCommand({ id: `nav:${opt.key}`, title: t('command.open', { name: opt.label }), group: t('command.groupNav'), keywords: opt.label, run: () => { void router.push(opt.key); } })
-  }
-  registerCommand({ id: 'nav:/compare', title: t('command.compare'), group: t('command.groupNav'), keywords: '对比 compare diff', run: () => { void router.push('/compare'); } });
-  registerCommand({ id: 'palette:new-card', title: t('command.newCard'), group: t('command.groupOps'), keywords: '新建 卡片 create', run: async () => {
-    const { createCard } = await import('@/services/cardService');
-    const row = await createCard('新角色');
-    await ws.refreshCards(true);
-    router.push(`/editor/${row.id}`);
-  } });
-  for (const th of THEMES) {
-    registerCommand({
-      id: `theme:${th.id}`,
-      title: t('command.switchTheme', { name: th.label }),
-      group: t('command.groupTheme'),
-      keywords: `主题 theme ${th.label} ${th.mode === 'dark' ? '深色' : '浅色'}`,
-      run: () => { void appearance.setTheme(th.id); },
-    });
-  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown);
   uninstallShortcuts();
   unregisterShortcut('global:ctrl-k');
-  for (const opt of menuOptions.value) unregisterCommand(`nav:${opt.key}`);
-  unregisterCommand('nav:/compare');
-  unregisterCommand('palette:new-card');
-  for (const th of THEMES) unregisterCommand(`theme:${th.id}`);
+  unregisterPaletteCommands();
 });
 </script>
 
@@ -197,7 +218,7 @@ onBeforeUnmount(() => {
             <template #icon><NIcon><TerminalOutline /></NIcon></template>
             Ctrl K
           </NButton>
-          <NText depth="3" style="font-size: 12px">{{ ws.cards.length }} 张卡</NText>
+          <NText depth="3" style="font-size: 12px">{{ activeCardCount }} 张卡</NText>
           <NBadge :show="!hasTextChannel" dot type="warning" :offset="[-2, 2]">
             <NTag size="small" round :bordered="false" style="cursor: pointer" @click="router.push('/ai')">
               {{ hasTextChannel ? hasTextChannel.name : '配置 AI' }}

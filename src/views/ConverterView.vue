@@ -2,7 +2,7 @@
 /** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告、最近转换记录（P1-4） */
 import { onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty,
+  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty, NSwitch,
 } from 'naive-ui';
 import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline, DownloadOutline } from '@vicons/ionicons5';
 import * as cardService from '@/services/cardService';
@@ -198,9 +198,13 @@ function run() {
             <template #icon><NIcon><SwapHorizontalOutline /></NIcon></template>
             {{ mode === 'png2json' ? '选择 PNG 并转换' : '选择 JSON 并转换' }}
           </NButton>
-          <NTag v-if="mode === 'json2png'" size="small" round :bordered="false" :type="dualWrite ? 'success' : 'warning'" style="cursor: pointer" @click="dualWrite = !dualWrite">
-            {{ dualWrite ? '双写 ccv3 + chara（推荐）' : '仅写 chara（兼容模式）' }}
-          </NTag>
+          <NSpace v-if="mode === 'json2png'" :size="8" align="center" :wrap-item="false">
+            <NSwitch v-model:value="dualWrite" size="small">
+              <template #checked>双写 ccv3 + chara</template>
+              <template #unchecked>仅写 chara</template>
+            </NSwitch>
+            <NText depth="3" style="font-size: 12px">{{ dualWrite ? '推荐：新旧前端都能识别' : '兼容模式：旧前端专用' }}</NText>
+          </NSpace>
         </NSpace>
       </div>
 

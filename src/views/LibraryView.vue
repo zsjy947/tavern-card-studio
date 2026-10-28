@@ -4,9 +4,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   NSpace, NInput, NButton, NTag, NEmpty, NSpin, NDropdown, NPopconfirm,
-  useMessage, NIcon, NSelect, NSwitch, NTree, type TreeOption,
+  useMessage, NIcon, NSelect, NTree, type TreeOption,
 } from 'naive-ui';
-import { SearchOutline, AddOutline, DownloadOutline, CloudUploadOutline, RefreshOutline, GitCompareOutline } from '@vicons/ionicons5';
+import { SearchOutline, AddOutline, DownloadOutline, CloudUploadOutline, RefreshOutline, GitCompareOutline, TrashOutline } from '@vicons/ionicons5';
 import { useWorkspace } from '@/stores/workspace';
 import type { CardRow, CategoryRow } from '@/services/types';
 import * as cardService from '@/services/cardService';
@@ -373,8 +373,8 @@ async function restore(c: CardRow) {
 
 <template>
   <div class="lib-layout" data-shortcut-scope="library">
-    <!-- 左侧分类树 -->
-    <div class="lib-side">
+    <!-- 左侧分类树（回收站模式下不适用：回收站没有分类概念） -->
+    <div v-if="!showTrash" class="lib-side">
       <div class="lib-side-head">
         <span style="font-weight: 700; font-size: 13px">分类</span>
         <NSpace :size="2">
@@ -392,36 +392,38 @@ async function restore(c: CardRow) {
 
     <!-- 右侧卡列表 -->
     <div class="lib-main">
-      <NSpace align="center" :size="10" style="margin-bottom: 14px" wrap>
-        <NInput v-model:value="keyword" placeholder="搜索卡名 / 标签 / 描述…" clearable style="width: 240px">
+      <!-- 不用 NSpace：其对运行时扁平化 children 误用 STABLE_FRAGMENT + 包裹层 key 恒为 1，
+           条件切换时 vnode 复用错位（渲染出重复按钮）。普通 flex 容器样式等价且无此坑 -->
+      <div class="lib-toolbar">
+        <NInput v-if="!showTrash" v-model:value="keyword" placeholder="搜索卡名 / 标签 / 描述…" clearable style="width: 240px">
           <template #prefix><NIcon><SearchOutline /></NIcon></template>
         </NInput>
-        <NSelect v-model:value="tagFilter" :options="allTags" placeholder="标签筛选" clearable style="width: 150px" size="small" />
-        <NButton size="small" secondary @click="importCards" :loading="importing">
+        <NSelect v-if="!showTrash" v-model:value="tagFilter" :options="allTags" placeholder="标签筛选" clearable style="width: 150px" size="small" />
+        <NButton v-if="!showTrash" size="small" secondary @click="importCards" :loading="importing">
           <template #icon><NIcon><CloudUploadOutline /></NIcon></template>导入 PNG / JSON
         </NButton>
-        <NButton size="small" secondary @click="exportSelected('json')">
+        <NButton v-if="!showTrash" size="small" secondary @click="exportSelected('json')">
           <template #icon><NIcon><DownloadOutline /></NIcon></template>导出 JSON
         </NButton>
-        <NButton size="small" secondary @click="exportSelected('png')">导出 PNG</NButton>
-        <NButton size="small" tertiary @click="compareSelected">
+        <NButton v-if="!showTrash" size="small" secondary @click="exportSelected('png')">导出 PNG</NButton>
+        <NButton v-if="!showTrash" size="small" tertiary @click="compareSelected">
           <template #icon><NIcon><GitCompareOutline /></NIcon></template>对比
         </NButton>
         <NButton size="small" quaternary @click="refresh">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>
         </NButton>
         <div style="flex:1"></div>
-        <NSwitch v-model:value="showTrash" size="small">
-          <template #checked>回收站</template>
-          <template #unchecked>卡库</template>
-        </NSwitch>
-        <NButton type="primary" size="small" @click="newCard">
+        <NButton size="small" :type="showTrash ? 'primary' : 'default'" :secondary="!showTrash" @click="showTrash = !showTrash">
+          <template #icon><NIcon><TrashOutline /></NIcon></template>
+          {{ showTrash ? '返回卡库' : '回收站' }}
+        </NButton>
+        <NButton v-if="!showTrash" type="primary" size="small" @click="newCard">
           <template #icon><NIcon><AddOutline /></NIcon></template>新建角色卡
         </NButton>
-      </NSpace>
+      </div>
 
       <NSpin :show="ws.cardsLoading">
-        <NEmpty v-if="!filtered.length" description="没有卡片，导入或新建一张开始" style="padding: 60px 0" />
+        <NEmpty v-if="!filtered.length" :description="showTrash ? '回收站是空的' : '没有卡片，导入或新建一张开始'" style="padding: 60px 0" />
         <!-- 行分块渲染（两种模式同一套卡片标记）：>500 张时行虚拟化，否则普通滚动 -->
         <div v-else-if="virtualEnabled" v-bind="containerProps" class="lib-virtual">
           <div v-bind="wrapperProps">
@@ -526,6 +528,7 @@ async function restore(c: CardRow) {
 }
 .lib-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .lib-main { flex: 1; min-width: 0; }
+.lib-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .lib-virtual { max-height: calc(100vh - 200px); overflow: auto; }
 .lib-row { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .lib-card {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registerCommand, unregisterCommand, listCommands, searchCommands, fuzzyMatch } from './useCommandPalette';
+import { registerCommand, unregisterCommand, listCommands, searchCommands, fuzzyMatch, resolveText } from './useCommandPalette';
 
 describe('命令面板注册表', () => {
   it('注册/注销/列举', () => {
@@ -23,6 +23,17 @@ describe('命令面板注册表', () => {
 describe('模糊搜索', () => {
   const cmd = { id: 'x', title: '打开 · 卡库', group: '导航', keywords: '卡片 library 列表', run: () => {} };
 
+  it('惰性文案：注册时 key、解析时取最新值（i18n 消息晚于注册的回归锚点）', () => {
+    let label = 'command.open'; // 模拟消息表未就绪时 t() 返回原始 key
+    registerCommand({ id: 'lazy', title: () => `打开 · ${label}`, group: () => '导航', run: () => {} });
+    const item = listCommands().find((c) => c.id === 'lazy')!;
+    expect(resolveText(item.title)).toBe('打开 · command.open'); // 未就绪：raw key（但不是冻结的注册值）
+    label = '卡库'; // 消息表就绪 / 切语言
+    expect(resolveText(item.title)).toBe('打开 · 卡库'); // 渲染时自动跟随
+    expect(fuzzyMatch('卡库', item)).toBe(true);         // 搜索也用解析后的文案
+    unregisterCommand('lazy');
+  });
+
   it('空查询全中', () => {
     expect(fuzzyMatch('', cmd)).toBe(true);
   });
@@ -41,7 +52,7 @@ describe('模糊搜索', () => {
     registerCommand({ id: 'b', title: 'Beta', group: '导航', run: () => {} });
     registerCommand({ id: 'a', title: 'Alpha', group: '操作', run: () => {} });
     const res = searchCommands('');
-    const groups = res.map((c) => c.group);
+    const groups = res.map((c) => resolveText(c.group));
     // 与实现一致：分组 localeCompare 升序
     const expected = [...groups].sort((x, y) => x.localeCompare(y));
     expect(groups).toEqual(expected);

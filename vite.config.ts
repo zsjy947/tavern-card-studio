@@ -1,9 +1,14 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
+import pkg from './package.json';
 
 export default defineConfig({
   plugins: [vue()],
+  // 应用版本注入（设置页「关于」展示），单一来源 = package.json
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

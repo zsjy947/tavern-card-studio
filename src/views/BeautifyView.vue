@@ -8,7 +8,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   NSpace, NButton, NSelect, NCard, NInput, NTag, useMessage, NIcon, NGrid, NGridItem, NAlert, NText,
-  NRadioButton, NRadioGroup, NSpin, NPopconfirm, NEmpty,
+  NRadioButton, NRadioGroup, NSpin, NPopconfirm, NEmpty, NTooltip,
 } from 'naive-ui';
 import { ColorWandOutline, ImageOutline, AddOutline, TrashOutline, SparklesOutline, RefreshOutline, SaveOutline, LocateOutline } from '@vicons/ionicons5';
 import { listTemplates, saveTemplate } from '@/services/templateService';
@@ -547,9 +547,14 @@ watch(mode, () => {
           <NCard size="small" title="3 · 自定义 CSS（可选）">
             <CodeEditor v-model="customCss" language="text" height="160px" />
             <template #action>
-              <NButton type="primary" size="small" :disabled="!chosenCardId || !draft" @click="insert">
-                <template #icon><NIcon><ColorWandOutline /></NIcon></template>一键插入三件套
-              </NButton>
+              <NTooltip :disabled="!!chosenCardId && !!draft" trigger="hover">
+                <template #trigger>
+                  <NButton type="primary" size="small" :disabled="!chosenCardId || !draft" @click="insert">
+                    <template #icon><NIcon><ColorWandOutline /></NIcon></template>一键插入三件套
+                  </NButton>
+                </template>
+                {{ !chosenCardId ? '先在顶部「选择要美化的卡」中选择一张卡' : '正在生成预览，请稍候' }}
+              </NTooltip>
             </template>
           </NCard>
         </NSpace>

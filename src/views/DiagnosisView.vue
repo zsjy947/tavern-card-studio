@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 诊断与调整：静态检查（即时）+ 卡医 LLM 诊断（结构化报告）+ 修复建议 → diff → 应用 */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
   NSpace, NButton, NSelect, NCard, NTag, useMessage, NIcon, NEmpty, NCollapse, NCollapseItem, NInput, NSpin, NModal, NDescriptions, NDescriptionsItem, NProgress,
 } from 'naive-ui';
@@ -25,6 +25,13 @@ const skillId = ref<string | null>(null);
 const doctorBusy = ref(false);
 const doctorStream = ref('');
 const report = ref<DoctorReport | null>(null);
+// 切换卡片时清空上一张卡的结果（否则旧结论挂在新卡名下误导判断）
+watch(cardId, () => {
+  issues.value = [];
+  staticRan.value = false;
+  report.value = null;
+  doctorStream.value = '';
+});
 
 onMounted(async () => {
   await ws.refreshCards(true);

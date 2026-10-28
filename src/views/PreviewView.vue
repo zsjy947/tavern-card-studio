@@ -46,9 +46,11 @@ const PLACEHOLDER_RE = /<\/?[A-Za-z][\w-]*(?:PlaceHolder|Bar|Panel|Status|Impl)[
 
 function renderGreeting(text: string): string {
   return renderMacros(text)
+    // 先用哨兵包住占位符再整体转义，避免 <> 转义后正则永远匹配不到（徽标失效）
+    .replace(PLACEHOLDER_RE, (m) => `\u0001${m}\u0002`)
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(PLACEHOLDER_RE, (m) => `<span class="greet-ph" title="渲染占位符，酒馆内生效">${m}</span>`)
+    .replace(/\u0001([^\u0001\u0002]*)\u0002/g, (_, m) => `<span class="greet-ph" title="渲染占位符，酒馆内生效">${m}</span>`)
     .replace(/\n/g, '<br>');
 }
 

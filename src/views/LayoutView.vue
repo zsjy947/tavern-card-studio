@@ -101,14 +101,10 @@ function onThemeSelect(key: string | number) {
 const paletteToggle = () => {
   paletteShow.value = !paletteShow.value;
 };
+/* Ctrl+K 只经快捷键注册表分发（installShortcutLayer 的 keydown 捕获层）。
+   不要再加全局 keydown 直调 paletteToggle——两个 handler 同一次按键各
+   toggle 一次，同一 tick 内 show true→false 批量合并，净变化为零，面板打不开 */
 registerShortcut({ id: 'global:ctrl-k', combo: 'Ctrl+K', scope: 'global', description: '打开/关闭命令面板', handler: paletteToggle });
-
-function onGlobalKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault();
-    paletteToggle();
-  }
-}
 
 const uninstallShortcuts = installShortcutLayer();
 
@@ -155,7 +151,6 @@ function unregisterPaletteCommands() {
 registerPaletteCommands();
 
 onMounted(async () => {
-  window.addEventListener('keydown', onGlobalKeydown);
   // D3（技术债）：桌面 SQLite 降级提示全局化——挂载即一次性全局通知，不再等用户进设置页
   const degraded = consumeDegradedNotice();
   if (degraded !== null) {
@@ -172,7 +167,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onGlobalKeydown);
   uninstallShortcuts();
   unregisterShortcut('global:ctrl-k');
   unregisterPaletteCommands();

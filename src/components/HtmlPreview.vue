@@ -69,6 +69,8 @@ watch(doc, () => {
 
 function onMessage(e: MessageEvent) {
   if (!props.enablePicker) return;
+  // 只接受本组件 iframe 的消息，防任意窗口伪造 tcs-pick 写入选择器
+  if (e.source !== frame.value?.contentWindow) return;
   const d = e.data as { type?: string; selector?: string | null; tag?: string } | null;
   if (!d || typeof d !== 'object') return;
   if (d.type === PICKED_MESSAGE) {

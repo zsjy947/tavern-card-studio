@@ -64,6 +64,9 @@ pub async fn font_write(app: tauri::AppHandle, dir: String, name: String, b64: S
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .map_err(|e| format!("base64 解码失败：{e}"))?;
+    if bytes.len() > 40 * 1024 * 1024 {
+        return Err("字体文件超过 40MB 上限".into());
+    }
     let path: PathBuf = dir_path.join(safe);
     if !path.parent().map(|p| p == dir_path.as_path()).unwrap_or(false) {
         return Err("路径越界".into());
@@ -95,9 +98,15 @@ pub async fn font_delete(app: tauri::AppHandle, dir: String, name: String) -> Re
 /// 轻量存在性检查（技术债 D4）：try_exists + 元数据大小，替代「为了验证可读性
 /// 而把几十 MB 字体整读进内存」的 font_read 全量读。返回 Some(字节数) = 存在。
 #[tauri::command]
-pub async fn font_exists(dir: String, name: String) -> Result<Option<u64>, String> {
-    let safe = safe_font_name(&name)?;
-    let path = Path::new(&dir).join(safe);
+pub async fn font_exists(app: tauri::AppHandle, dir: String, name: String) -> Result<Option<u64>, String> {
+    // 与兄弟命令一致校验 dir（否则可拿任意目录当 oracle 探测文件存在性/大小）
+    let dir_path = ensure_font_dir(&app, &dir)?;
+    font_exists_in(&dir_path, &name).await
+}
+
+async fn font_exists_in(dir_path: &Path, name: &str) -> Result<Option<u64>, String> {
+    let safe = safe_font_name(name)?;
+    let path = dir_path.join(safe);
     match tokio::fs::try_exists(&path).await {
         Ok(false) => Ok(None),
         Ok(true) => {
@@ -136,13 +145,13 @@ mod tests {
         let file = dir.join("test_font.ttf");
         std::fs::write(&file, b"12345").unwrap();
 
-        let hit = super::font_exists(dir.to_string_lossy().into_owned(), "test_font.ttf".into()).await.unwrap();
+        let hit = super::font_exists_in(&dir, "test_font.ttf").await.unwrap();
         assert_eq!(hit, Some(5));
 
-        let miss = super::font_exists(dir.to_string_lossy().into_owned(), "nope.ttf".into()).await.unwrap();
+        let miss = super::font_exists_in(&dir, "nope.ttf").await.unwrap();
         assert_eq!(miss, None);
 
-        let bad = super::font_exists(dir.to_string_lossy().into_owned(), "../escape.ttf".into()).await;
+        let bad = super::font_exists_in(&dir, "../escape.ttf").await;
         assert!(bad.is_err());
 
         std::fs::remove_dir_all(&dir).ok();

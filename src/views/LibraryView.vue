@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 卡库：搜索/标签筛选/分类目录/批量导出/回收站/两卡对比入口 */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   NSpace, NInput, NButton, NTag, NEmpty, NSpin, NDropdown, NPopconfirm,
@@ -29,6 +29,14 @@ const keyword = ref('');
 const tagFilter = ref<string | null>(null);
 const categoryFilter = ref<string | null>(null); // null=全部, 'none'=未分类
 const showTrash = ref(false);
+// 回收站模式没有搜索/标签/分类概念：进入时清掉残留过滤器，避免列表"莫名变空"
+watch(showTrash, (v) => {
+  if (v) {
+    keyword.value = '';
+    tagFilter.value = null;
+    categoryFilter.value = null;
+  }
+});
 const selected = ref<Set<string>>(new Set());
 const importing = ref(false);
 const categories = ref<CategoryRow[]>([]);

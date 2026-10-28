@@ -10,12 +10,27 @@ use tauri_plugin_dialog::DialogExt;
 /// write_export 校验 dir 与注册值一致，防止 dir 被篡改后写任意位置。
 static REGISTERED_EXPORT_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// 注册导出目录：仅接受绝对路径、且当前存在并确实是文件夹的路径。
+/// 进程内记录的用户最近一次 pick_export_dir 结果：
+/// set_export_dir 只接受 Rust 侧计算出的 export_dir 或这里记录的值——
+/// 否则渲染进程（含 XSS 场景）可注册任意目录（如启动文件夹）再写文件持久化。
+static LAST_PICKED_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// 注册导出目录：仅接受 Rust 侧计算的默认导出目录，或用户经系统对话框
+/// 选择的目录（pick_export_dir 记录）。任意绝对路径一律拒绝。
 #[tauri::command]
-pub async fn set_export_dir(dir: String) -> Result<(), String> {
+pub async fn set_export_dir(app: tauri::AppHandle, dir: String) -> Result<(), String> {
     let p = PathBuf::from(&dir);
-    if !p.is_absolute() {
-        return Err(format!("导出目录必须为绝对路径：{dir}"));
+    let default_dir = ensure_export_dir(&app)?;
+    let picked_ok = LAST_PICKED_DIR
+        .lock()
+        .map_err(|e| format!("导出目录状态锁异常：{e}"))?
+        .as_ref()
+        .map(|picked| *picked == p)
+        .unwrap_or(false);
+    if p != default_dir && !picked_ok {
+        return Err(format!(
+            "导出目录不被允许：{dir}（仅默认目录或对话框选择的目录）"
+        ));
     }
     let meta = std::fs::metadata(&p).map_err(|e| format!("导出目录不可访问：{e}"))?;
     if !meta.is_dir() {
@@ -80,7 +95,12 @@ pub async fn pick_export_dir(
         match builder.blocking_pick_folder() {
             Some(fp) => fp
                 .into_path()
-                .map(|p| Some(p.to_string_lossy().into_owned()))
+                .map(|p| {
+                    if let Ok(mut guard) = LAST_PICKED_DIR.lock() {
+                        *guard = Some(p.clone());
+                    }
+                    Some(p.to_string_lossy().into_owned())
+                })
                 .map_err(|e| e.to_string()),
             None => Ok(None),
         }

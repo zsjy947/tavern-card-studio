@@ -24,7 +24,12 @@ watch(results, () => {
 
 async function execute(cmd: CommandItem) {
   show.value = false;
-  await cmd.run();
+  try {
+    await cmd.run();
+  } catch (e) {
+    // 面板已关，异常吞掉会让用户无感知
+    console.error('命令执行失败：', cmd.id, e);
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {

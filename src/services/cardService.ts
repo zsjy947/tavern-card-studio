@@ -3,7 +3,7 @@
  */
 import { getStore, genId } from '@/db';
 import {
-  parseLooseCard, convertSpec, blankCard, dataHash,
+  parseLooseCard, convertSpec, blankCard, dataHash, stableStringify,
   type AnyCard,
 } from '@/core/card';
 import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/core/png';
@@ -99,7 +99,8 @@ async function finishImport(card: AnyCard, warnings: string[]): Promise<ImportRe
   );
   let replacedName: string | undefined;
   let row: CardRow;
-  if (existing) {
+  if (existing && stableStringify(existing.card.data) === stableStringify(card.data)) {
+    // 64bit FNV-1a 非加密哈希：命中后比对内容，防不同卡碰撞被静默覆盖
     replacedName = existing.name;
     row = toRow(card, existing);
   } else {
@@ -164,7 +165,7 @@ export async function saveCard(id: string, cardIn: AnyCard, opts: { note?: strin
   const row = toRow(card, prev);
   if (opts.keepCover) row.cover = prev.cover;
   await store.put('cards', id, row);
-  if (changed && (opts.forceSnapshot || opts.note || true)) {
+  if (changed || opts.forceSnapshot || opts.note) {
     await addVersion(id, card, opts.note || '编辑保存');
   }
   return row;

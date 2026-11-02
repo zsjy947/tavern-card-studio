@@ -1,8 +1,8 @@
 <script setup lang="ts">
-/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告、最近转换记录（P1-4） */
+/** 转换工具：PNG→JSON、JSON→PNG、批量 zip、完整性校验报告、最近转换记录（P1-4）、批量断点续跑（§三.4） */
 import { onMounted, ref } from 'vue';
 import {
-  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty, NSwitch,
+  NSpace, NButton, NRadioGroup, NRadioButton, NInput, NTag, useMessage, NIcon, NCollapse, NCollapseItem, NList, NListItem, NText, NTooltip, NEmpty, NSwitch, NProgress, NAlert,
 } from 'naive-ui';
 import { ImageOutline, DocumentTextOutline, SwapHorizontalOutline, DownloadOutline } from '@vicons/ionicons5';
 import * as cardService from '@/services/cardService';
@@ -11,23 +11,42 @@ import { extractCardFromPng, injectCardIntoPng, makePlaceholderPng } from '@/cor
 import { runStaticChecks } from '@/core/diag/staticChecks';
 import { downloadText, downloadBlob, timestampName } from '@/services/backupService';
 import { pickJsonFiles, pickPngFiles, sanitizeFilename } from '@/utils/file';
-import { listRecentConversions, recordConversion, reDownloadConversion } from '@/services/converterService';
-import { formatBytes, type RecentConversion } from '@/core/converter/recent';
+import { listRecentConversions, listBatchRuns, recordConversion, recordBatchRun, reDownloadConversion, getProduct } from '@/services/converterService';
+import { bytesHash, formatBytes, type RecentConversion, type BatchRun } from '@/core/converter/recent';
+import { genId } from '@/db';
 import JSZip from 'jszip';
 
 const message = useMessage();
 const mode = ref<'png2json' | 'json2png'>('png2json');
 const dualWrite = ref(true);
-const report = ref<{ name: string; ok: boolean; detail: string }[]>([]);
+interface ReportRow { name: string; ok: boolean; detail: string; file?: File }
+const report = ref<ReportRow[]>([]);
 const busy = ref(false);
 const lastJsonPreview = ref('');
 const recent = ref<RecentConversion[]>([]);
+const progress = ref<{ done: number; total: number } | null>(null);
+/** 上次未完成批量（断点续跑）：该批已成功记录按 文件名:源指纹 索引 */
+const resume = ref<{ run: BatchRun; done: Map<string, RecentConversion>; okCount: number } | null>(null);
 // 底图显式选择：不再在选完 JSON 后隐藏式串行弹第二个对话框
 const basePngName = ref('');
 const basePngBytes = ref<Uint8Array | null>(null);
 
 onMounted(async () => {
-  recent.value = await listRecentConversions().catch(() => []);
+  const [recents, runs] = await Promise.all([
+    listRecentConversions().catch(() => [] as RecentConversion[]),
+    listBatchRuns().catch(() => [] as BatchRun[]),
+  ]);
+  recent.value = recents;
+  // 中断检测：finishedAt 缺失 = 上次批量没跑完（关窗/刷新/切页杀掉循环）
+  const unfinished = runs.find((r) => !r.finishedAt);
+  if (unfinished) {
+    const done = new Map(
+      recents
+        .filter((r) => r.batchId === unfinished.id && r.status !== 'failed')
+        .map((r) => [`${r.fileName}:${r.sourceHash ?? ''}`, r] as const),
+    );
+    resume.value = { run: unfinished, done, okCount: done.size };
+  }
 });
 
 async function reDownload(entry: RecentConversion) {
@@ -37,6 +56,41 @@ async function reDownload(entry: RecentConversion) {
   } catch (e) {
     message.warning((e as Error).message);
   }
+}
+
+/* ---------------- 批量断点续跑（§三.4） ---------------- */
+
+/** 批量开始：登记 BatchRun（单文件转换不建批）；返回 run 供批末补 finishedAt */
+async function beginBatch(direction: 'png2json' | 'json2png', total: number): Promise<BatchRun | null> {
+  if (total <= 1) return null;
+  const run: BatchRun = { id: genId('batch'), direction, total, startedAt: new Date().toISOString() };
+  await recordBatchRun(run).catch(() => undefined);
+  return run;
+}
+
+/** 批量收尾：补 finishedAt（无论成败——失败文件已按 status:failed 留痕） */
+async function finishBatch(run: BatchRun | null, zipPath: string | null) {
+  if (!run) return;
+  await recordBatchRun({ ...run, finishedAt: new Date().toISOString(), zipPath }).catch(() => undefined);
+}
+
+/** 同方向重跑时按 文件名:源指纹 跳过该批已成功文件（一次性消费） */
+function takeResumeDone(direction: 'png2json' | 'json2png'): Map<string, RecentConversion> | null {
+  const done = resume.value?.run.direction === direction ? resume.value.done : null;
+  resume.value = null;
+  return done;
+}
+
+/** 已完成文件的续跑处理：产物还在缓存则回填 zip，否则只报告跳过 */
+async function skipDone(prev: RecentConversion, zip: JSZip, doneSet: Set<string>): Promise<void> {
+  doneSet.add(prev.fileName);
+  const product = getProduct(prev.id);
+  if (product) zip.file(prev.outputName, product.bytes);
+  report.value.push({
+    name: prev.fileName,
+    ok: true,
+    detail: product ? '已完成（跳过重复转换，产物已回填 zip）' : '已完成（跳过重复转换；产物未保留，未入本次 zip）',
+  });
 }
 
 async function chooseBasePng() {
@@ -54,15 +108,33 @@ function clearBasePng() {
 async function convertPngToJson() {
   const files = await pickPngFiles(true);
   if (!files.length) return;
+  await runPng2Json(files);
+}
+
+async function runPng2Json(files: File[]) {
   busy.value = true;
   report.value = [];
   const zip = new JSZip();
+  const done = takeResumeDone('png2json');
+  const doneNames = new Set<string>();
   let okCount = 0;
+  let converted = 0;
   let savedPath: string | null = null;
+  const run = await beginBatch('png2json', files.length);
   try {
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]!;
+      progress.value = { done: i + 1, total: files.length };
+      let hash = '';
       try {
         const bytes = new Uint8Array(await f.arrayBuffer());
+        hash = bytesHash(bytes);
+        const prev = done?.get(`${f.name}:${hash}`);
+        if (prev) {
+          await skipDone(prev, zip, doneNames);
+          okCount++;
+          continue;
+        }
         const { raw } = extractCardFromPng(bytes);
         const card = parseLooseCard(raw);
         const json = JSON.stringify(card, null, 2);
@@ -82,6 +154,9 @@ async function convertPngToJson() {
           bytes: new TextEncoder().encode(json),
           mime: 'application/json',
           savedPath,
+          batchId: run?.id,
+          status: 'ok',
+          sourceHash: hash,
         }).catch(() => undefined);
         const issues = runStaticChecks(card);
         const errors = issues.filter((i) => i.severity === 'error').length;
@@ -91,19 +166,35 @@ async function convertPngToJson() {
           name: f.name,
           ok: errors === 0,
           detail: `${card.data.name} · ${card.spec === 'chara_card_v3' ? 'V3' : card.spec === 'chara_card_v2' ? 'V2' : 'V1'} · ${errors ? `${errors} 个错误` : '校验通过'}${issues.length ? `（${issues.length} 项）` : ''}${details.length ? '\n' + details.join('\n') : ''}`,
+          file: f,
         });
         okCount++;
+        converted++;
       } catch (e) {
-        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
+        // 失败也留痕：断点续跑时不跳过，可在报告里单条重试
+        await recordConversion({
+          direction: 'png2json',
+          fileName: f.name,
+          cardName: '',
+          spec: '',
+          outputName: '',
+          batchId: run?.id,
+          status: 'failed',
+          error: (e as Error).message,
+          sourceHash: hash || undefined,
+        }).catch(() => undefined);
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message, file: f });
       }
     }
     if (files.length > 1 && okCount) {
       savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('png2json', 'zip'));
     }
+    await finishBatch(run, savedPath);
     recent.value = await listRecentConversions().catch(() => recent.value);
-    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
+    message.success(`转换完成 ${converted + doneNames.size}/${files.length}${doneNames.size ? `（续跑跳过已完成 ${doneNames.size}）` : ''}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
+    progress.value = null;
   }
 }
 
@@ -111,16 +202,35 @@ async function convertPngToJson() {
 async function convertJsonToPng() {
   const files = await pickJsonFiles(true);
   if (!files.length) return;
+  await runJson2Png(files);
+}
+
+async function runJson2Png(files: File[]) {
   busy.value = true;
   report.value = [];
   const basePng = basePngBytes.value;
   const zip = new JSZip();
+  const done = takeResumeDone('json2png');
+  const doneNames = new Set<string>();
   let okCount = 0;
+  let converted = 0;
   let savedPath: string | null = null;
+  const run = await beginBatch('json2png', files.length);
   try {
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]!;
+      progress.value = { done: i + 1, total: files.length };
+      let hash = '';
       try {
-        const text = await f.text();
+        const buf = await f.arrayBuffer();
+        hash = bytesHash(new Uint8Array(buf));
+        const prev = done?.get(`${f.name}:${hash}`);
+        if (prev) {
+          await skipDone(prev, zip, doneNames);
+          okCount++;
+          continue;
+        }
+        const text = new TextDecoder().decode(buf);
         const card = parseLooseCard(JSON.parse(text));
         const png = await cardService.cardToPngBytes(card, basePng, { dualWrite: dualWrite.value });
         const out = `${sanitizeFilename(card.data.name || f.name.replace(/\.json$/i, ''))}.png`;
@@ -139,21 +249,45 @@ async function convertJsonToPng() {
           bytes: png,
           mime: 'image/png',
           savedPath,
+          batchId: run?.id,
+          status: 'ok',
+          sourceHash: hash,
         }).catch(() => undefined);
-        report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? `（底图：${basePngName.value}）` : '（占位底图）'}` });
+        report.value.push({ name: f.name, ok: true, detail: `${card.data.name} → ${out}${basePng ? `（底图：${basePngName.value}）` : '（占位底图）'}`, file: f });
         okCount++;
+        converted++;
       } catch (e) {
-        report.value.push({ name: f.name, ok: false, detail: (e as Error).message });
+        await recordConversion({
+          direction: 'json2png',
+          fileName: f.name,
+          cardName: '',
+          spec: '',
+          outputName: '',
+          batchId: run?.id,
+          status: 'failed',
+          error: (e as Error).message,
+          sourceHash: hash || undefined,
+        }).catch(() => undefined);
+        report.value.push({ name: f.name, ok: false, detail: (e as Error).message, file: f });
       }
     }
     if (files.length > 1 && okCount) {
       savedPath = await downloadBlob(await zip.generateAsync({ type: 'blob' }), timestampName('json2png', 'zip'));
     }
+    await finishBatch(run, savedPath);
     recent.value = await listRecentConversions().catch(() => recent.value);
-    message.success(`转换完成 ${okCount}/${files.length}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
+    message.success(`转换完成 ${converted + doneNames.size}/${files.length}${doneNames.size ? `（续跑跳过已完成 ${doneNames.size}）` : ''}${savedPath ? `，已保存到 ${savedPath}` : ''}`);
   } finally {
     busy.value = false;
+    progress.value = null;
   }
+}
+
+/** 报告里失败行的单条重试（用保留的 File 引用原样重跑） */
+async function retryOne(r: ReportRow) {
+  if (!r.file || busy.value) return;
+  if (mode.value === 'png2json') await runPng2Json([r.file]);
+  else await runJson2Png([r.file]);
 }
 
 function run() {
@@ -165,6 +299,11 @@ function run() {
 <template>
   <div class="converter">
     <NSpace vertical :size="16" style="max-width: 880px">
+      <NAlert v-if="resume" type="warning" :bordered="false" closable style="font-size: 12px" @close="resume = null">
+        上次批量转换未完成（{{ resume.run.direction === 'png2json' ? 'PNG→JSON' : 'JSON→PNG' }}，成功 {{ resume.okCount }} / 共 {{ resume.run.total }}）。
+        同方向重新选择同一批文件时会按内容自动跳过已完成的（本次会话内产物还会回填 zip）。
+      </NAlert>
+
       <div class="converter-card">
         <NRadioGroup v-model:value="mode" size="small">
           <NRadioButton value="png2json">
@@ -206,6 +345,12 @@ function run() {
             <NText depth="3" style="font-size: 12px">{{ dualWrite ? '推荐：新旧前端都能识别' : '兼容模式：旧前端专用' }}</NText>
           </NSpace>
         </NSpace>
+
+        <!-- 批量进行时进度：done/total + 线性进度条 -->
+        <div v-if="progress" style="margin-top: 12px; max-width: 420px">
+          <NProgress type="line" :percentage="progress.total ? Math.round((progress.done / progress.total) * 100) : 100" :show-indicator="false" />
+          <NText depth="3" style="font-size: 12px">{{ progress.done }}/{{ progress.total }}</NText>
+        </div>
       </div>
 
       <NCollapse v-if="report.length">
@@ -216,6 +361,7 @@ function run() {
                 <NTag size="small" :bordered="false" :type="r.ok ? 'success' : 'error'">{{ r.ok ? 'OK' : '失败' }}</NTag>
                 <b style="font-size: 13px">{{ r.name }}</b>
                 <NText depth="3" style="font-size: 12px; white-space: pre-line; line-height: 1.6">{{ r.detail }}</NText>
+                <NButton v-if="!r.ok && r.file && !busy" size="tiny" secondary @click="retryOne(r)">重试</NButton>
               </NSpace>
             </NListItem>
           </NList>
@@ -233,10 +379,11 @@ function run() {
           <NList bordered size="small">
             <NListItem v-for="r in recent.slice(0, 20)" :key="r.id">
               <NSpace :size="8" align="center" style="width: 100%">
-                <NTag size="small" :bordered="false" :type="r.direction === 'png2json' ? 'info' : 'success'">
-                  {{ r.direction === 'png2json' ? 'PNG→JSON' : 'JSON→PNG' }}
+                <NTag size="small" :bordered="false" :type="r.status === 'failed' ? 'error' : r.direction === 'png2json' ? 'info' : 'success'">
+                  {{ r.status === 'failed' ? '失败' : r.direction === 'png2json' ? 'PNG→JSON' : 'JSON→PNG' }}
                 </NTag>
                 <b style="font-size: 13px">{{ r.cardName || r.fileName }}</b>
+                <NText v-if="r.status === 'failed'" depth="3" style="font-size: 12px; white-space: pre-line">{{ r.error }}</NText>
                 <NText depth="3" style="font-size: 12px">{{ formatBytes(r.sizeBytes) }} · {{ new Date(r.savedAt).toLocaleString() }}</NText>
                 <NTooltip :disabled="r.sizeBytes <= 2 * 1024 * 1024">
                   <template #trigger>

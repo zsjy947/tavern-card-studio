@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pushRecent, shouldKeepProduct, PRODUCT_KEEP_LIMIT, RECENT_CAP, type RecentConversion } from './recent';
+import { bytesHash, pushRecent, shouldKeepProduct, PRODUCT_KEEP_LIMIT, RECENT_CAP, type RecentConversion } from './recent';
 
 function entry(i: number): RecentConversion {
   return {
@@ -37,5 +37,13 @@ describe('recent conversions 纯逻辑（P1-4）', () => {
     expect(shouldKeepProduct(PRODUCT_KEEP_LIMIT)).toBe(true);
     expect(shouldKeepProduct(PRODUCT_KEEP_LIMIT + 1)).toBe(false);
     expect(shouldKeepProduct(0)).toBe(false);
+  });
+});
+
+describe('bytesHash（断点续跑源文件指纹）', () => {
+  it('同内容同哈希、异内容异哈希；与文件名无关', () => {
+    expect(bytesHash(new Uint8Array([1, 2, 3]))).toBe(bytesHash(new Uint8Array([1, 2, 3])));
+    expect(bytesHash(new Uint8Array([1, 2, 3]))).not.toBe(bytesHash(new Uint8Array([1, 2, 4])));
+    expect(bytesHash(new Uint8Array([]))).toBe('811c9dc5');
   });
 });

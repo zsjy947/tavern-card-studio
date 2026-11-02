@@ -23,6 +23,36 @@ export interface RecentConversion {
   savedPath?: string | null;
   /** 产物文件名（如 xxx.json / xxx.png） */
   outputName: string;
+  /** 同一次批量 run 的批次 id（单文件转换无此字段） */
+  batchId?: string;
+  /** per-file 结果：failed=失败（断点续跑不跳过、可重试）；旧记录缺省视为 ok */
+  status?: 'ok' | 'failed';
+  /** status=failed 时的错误信息 */
+  error?: string;
+  /** 源文件内容指纹（bytesHash），断点续跑防同名不同文件误跳 */
+  sourceHash?: string;
+}
+
+/** 一次批量转换 run（断点续跑依据：finishedAt 缺失 = 中断未完成） */
+export interface BatchRun {
+  id: string;
+  direction: ConvertDirection;
+  total: number;
+  startedAt: string;
+  /** 正常跑完（zip 已产出）才有 */
+  finishedAt?: string;
+  /** 批末 zip 落盘路径（桌面端） */
+  zipPath?: string | null;
+}
+
+/** 源文件指纹（FNV-1a 32bit，非安全场景足够）：断点续跑防同名不同文件误跳 */
+export function bytesHash(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]!;
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 /** 新记录入列（最新在前，超上限淘汰最老；同 id 幂等） */

@@ -26,6 +26,8 @@ export const SETTING_KEYS = {
   exportFilenameTemplate: 'export_filename_template',
   /** 转换器最近转换记录（上限 50） */
   recentConversions: 'recent_conversions',
+  /** 转换器批量 run 记录（上限 5；断点续跑依据） */
+  recentBatchRuns: 'recent_batch_runs',
   /** 导入预设组合（上限 10） */
   importPresets: 'import_presets',
   /** 界面语言（i18n 骨架；zh-CN / en-US） */

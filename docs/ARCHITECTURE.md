@@ -44,7 +44,7 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 | 设置与备份 | `/settings` | 主题/字体、导出文件夹、**导出文件名模板（{name}/{spec}/{version}/{date}）**、**界面语言切换**、**快捷键只读表**、全量备份 zip、偏好 |
 | 使用指南 | `/guide` | 小白向说明（目录常驻 sticky） |
 
-全局：Ctrl+K 命令面板（页面跳转/最近卡/新建/导入/切主题）、五套主题 + 自定义、UI 字体在线安装、**MVU 变量系统 13 件套**（编辑器「变量」Tab）。
+全局：Ctrl+K 命令面板（页面跳转/两卡对比/新建角色卡/切主题，标题与关键词经惰性 CommandText 随 i18n 解析）、五套主题 + 自定义、UI 字体在线安装、**MVU 变量系统 13 件套**（编辑器「变量」Tab）。
 
 ## core 各模块职责与关键决策
 
@@ -141,18 +141,19 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 原始 JSON/PNG bytes
   → parseLooseCard 归一化（可选 convertSpec）
   → dataHash 与现有卡比对（软删除除外）
-     ├─ 命中：覆盖该行（replacedName 提示）
+     ├─ 命中且 stableStringify 内容一致：覆盖该行（replacedName 提示）
      └─ 未命中：新建行（含 tokenStats 全量统计）
   → addVersion('导入') 初始快照
   → PNG 导入附底图 dataURL 封面（CardRow.cover）
 ```
+dataHash 为 64bit FNV-1a（非加密哈希）：命中后再以 `stableStringify` 比对双方 data，防不同内容碰撞静默覆盖无关卡。
 
 ### 卡封面（CardRow.cover）
 - data URL 形态随 cards 表行存储；PNG 导入自动附封面；编辑器头部可设置/更换/移除（`utils/image.ts` 选图经 canvas 等比缩放 ≤512px，PNG 保透明其余 JPEG）。
 - 卡库导出 PNG 自动用封面作底图（`dataUrlToBytes` 解码传入 `cardToPngBytes`）；无封面用占位图。
 
 ### 保存（saveCard）
-响应式消毒（JSON 往返剥 Proxy）→ toRow 重算 hash/tokens → put → hash 变化则 addVersion（版本上限 50，超出删最老）。`keepCover` 保封面。
+响应式消毒（JSON 往返剥 Proxy）→ toRow 重算 hash/tokens → put → 内容变化（hash 不同）或 `note` 非空或 `forceSnapshot` 时 addVersion（版本上限 50，超出删最老）。`keepCover` 保封面。
 
 ### 美化三件套（beautifyService）
 1. first_mes/description 尾部插占位 tag（已存在则跳过）
@@ -205,24 +206,29 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 | 命令 | 模块 | 说明 |
 |---|---|---|
 | `db_url` | db.rs | SQLite 连接串（便携优先 exe 同级 data/studio.db） |
-| `http_get_bytes` | http.rs | 二进制直连下载（绕 webview CORS，300MB 上限；共享连接池 + 请求级 300s 超时） |
-| `font_dir` / `font_write` / `font_read` / `font_exists` / `font_delete` | fonts.rs | 字体文件落盘管理（base64 IPC + 文件名白名单；`font_exists` try_exists+元数据轻量校验，不再为验可读性全量读文件） |
+| `http_get_bytes` | http.rs | 二进制直连下载（绕 webview CORS；Content-Length 预检 + `bytes_stream` 增量累计，超 300MB 即中止；共享连接池 + 请求级 300s 超时） |
+| `font_dir` / `font_write` / `font_read` / `font_exists` / `font_delete` | fonts.rs | 字体文件落盘管理（base64 IPC + 文件名白名单；`font_exists` 先 `ensure_font_dir` 校验 dir 再 try_exists+元数据轻量校验；`font_write` 解码后 40MB 上限） |
 | `llm_post_stream` / `llm_cancel_stream` | llm.rs | LLM 流式代理（Channel 事件回传，**~16ms 攒批合并 Chunk 帧**，会话注册表 + 建连期可取消 + 32MB body 上限 + https/回环 URL 校验） |
-| `export_dir` / `pick_export_dir` / `write_export` / `open_dir` | export.rs | 全局导出目录（文件夹选择/落盘/打开） |
+| `export_dir` / `pick_export_dir` / `set_export_dir` / `write_export` / `open_dir` | export.rs | 全局导出目录（默认目录计算/文件夹选择并记录/目录注册白名单/落盘/打开） |
 
-`commands/net.rs`：`OnceLock<reqwest::Client>` 全局共享连接池（connect_timeout 15s）——http.rs/llm.rs 共用，同渠道连续对话不再逐请求重建 Client 重复 TLS 握手；请求级超时挂 `.timeout()` 互不冲突。
+`commands/net.rs`：`OnceLock<reqwest::Client>` 全局共享连接池（connect_timeout 15s）——http.rs/llm.rs 共用，同渠道连续对话不再逐请求重建 Client 重复 TLS 握手；请求级超时挂 `.timeout()` 互不冲突。**重定向逐跳校验**：默认策略会跟随 https→http 降级到任意公网地址，使首跳 URL 校验被 302 绕过（SSRF）——自定义 `redirect::Policy` 要求每一跳目标为 https 或回环 http（`is_allowed_target`），语义与各命令首跳校验一致。
+
+`commands/export.rs` 目录白名单：`set_export_dir` 仅接受 Rust 侧计算的默认导出目录或 `pick_export_dir` 记录的用户选择（进程内 `LAST_PICKED_DIR`），任意绝对路径拒绝——否则渲染进程（含 XSS 场景）可注册启动文件夹后经 `write_export` 持久化写入。
+
+`tauri.conf.json` CSP：`script-src 'self' + 内联引导脚本的精确 SHA-256 hash`（不再 `'unsafe-inline'`）；`style-src` 保留 `'unsafe-inline'`——naive-ui cssr 在运行时动态注入 `<style>`，Tauri 的 nonce 替换会拦掉它们（这正是 `dangerousDisableAssetCspModification: true` 的成因），故 CSP 按原文使用、内联脚本以 hash 放行。改动 index.html 内联脚本后需重算 hash。
 
 ## 视图层约定
 
 - 路由 hash 模式（file:// 与 Tauri 协议下可用）。
-- naive-ui `NGrid` 的直接子元素只能是 `NGi`，其余组件会被静默丢弃不渲染（真实事故：诊断页明细面板空白）；单卡片布局直接用 NCard。
+- naive-ui `NGrid` 的直接子元素只能是 `NGi`，其余组件会被静默丢弃不渲染（真实事故：诊断页明细面板空白）；单卡片布局直接用 NCard。**NSpace 同类坑**：其运行时扁平化 slot children 误用 `STABLE_FRAGMENT` 且包裹层 key 恒为常量，children 含 `v-if` 条件切换时会 vnode 复用错位渲染出重复控件（真实事故：卡库工具栏切回收站出现 6 个重复按钮）——条件子元素改普通 flex 容器或每个控件独立 `v-if`（卡库工具栏即此实现）。
 - **NInput 的 `@change` 在实际输入路径不可靠**（composition/change 事件链路问题）：需要失焦提交的输入用原生 `<input>` + 原生 `change` 事件（变量工作台 key 编辑即此实现）。
+- **命令面板（Ctrl+K）两条约定**：① 命令的标题/分组/关键词用惰性 `CommandText`（string | () => string）注册——i18n 消息懒加载晚于组件挂载，注册时固化字符串会永久显示原始 key；面板渲染/搜索时才经 `resolveText` 求值。② Ctrl+K 只经 `useShortcuts` 注册表分发，**勿再并行挂全局 keydown 直调 toggle**——同一按键两次 toggle 在同 tick 内批量合并，净变化为零，面板完全无法用键盘打开（真实事故）。
 - **Vue reactive proxy 不能 structuredClone**（DataCloneError）：深拷贝一律 `JSON.parse(JSON.stringify())`（BeautifyView 工作副本、saveCard 消毒均如此）。
 - **布局滚动几何**：两级 n-layout 各自渲染 `.n-layout-scroll-container` 且都参与滚动（页头会滚走、NLayoutContent 被内容撑高使 sticky 失效）。App.vue 已修复：两级 scroll-container 均不滚动、内层列布局，NLayoutContent 内部 `.n-scrollbar-container` 成为唯一受限视口——所有页面 `position: sticky`（指南目录/卡库分类栏）随之生效。
 - **主题切换统一渐变**：body 与主要面板/容器清单 `.25s` 同节奏（`!important` 压过 naive 动态注入）；收窄清单不用 `*` 通配。
 - 编辑器视图持有卡的深拷贝本地态，`markDirty` 跟踪，保存走 saveCard；路由 `:id` 变化时必须重载（组件复用），否则保存会写入错误的卡。
 - 本地撤销栈在撤销/重做前必须 flush 待提交的节流快照，否则最近 500ms 内的编辑丢失。
-- iframe 预览 `sandbox="allow-same-origin"`（不执行脚本优先安全）；`allowScripts` 开启脚本执行（AI 状态栏 tab 切换预览），`enablePicker` 再注入点选脚本（@medv/finder + postMessage 桥，Esc 退出）。HtmlPreview 缺省跟随全局明暗。
+- iframe 预览 `sandbox="allow-same-origin"`（不执行脚本优先安全）；`allowScripts` 开启脚本执行（AI 状态栏 tab 切换预览），`enablePicker` 再注入点选脚本（@medv/finder + postMessage 桥，Esc 退出）。`onMessage` 校验 `e.source === frame.contentWindow`，防任意窗口伪造 picker 消息写入选择器。HtmlPreview 缺省跟随全局明暗。
 - CodeMirror 6 轻封装 + One Dark（深色）/ 纸面（浅色，颜色引用 `--tcs-*`）双主题，经 Compartment 随全局主题热切换；`highlightLine` prop 支持外部定位（点选定向改：滚动选中规则块所在行）。
 - **i18n 骨架**：vue-i18n composition + locale 懒加载独立 chunk；首期只抽通用层（导航/命令分组/FieldAiButton），视图深层文案渐进迁移；`settings.ui_language` + localStorage 双持久化；naive-ui locale/dateLocale 跟随。
 - 测试对样例文件（本机社区卡/小说样本）用 `existsSync` 短路 + `describe.skipIf`，样本缺失自动整组跳过且收集期不崩。
@@ -237,9 +243,9 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 
 ## 测试策略
 
-- vitest 347 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
+- vitest 348 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等；命令面板惰性 CommandText 回归——注册时 key、解析时取最新值）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
 - **黄金 fixture 门禁**（迭代八）：`tests/fixtures/st-golden/*.json` 12 个合成场景冻结组装器的消息结构（块序/世界书语义/正则双通路/宏/注入点），`UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结后人工审 diff；真机样本（source:"real-st"）落同目录走同一校验。真机校准的导出操作步骤为本地文档 `docs/st-golden-guide.md`（不入库）。
-- Rust cargo test（字体文件名与 font_exists、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client）。
+- Rust cargo test（字体文件名与 font_exists_in、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client 重定向策略）。
 - E2E（@playwright/test + connectOverCDP 附加真实 WebView2，规避自带 Chromium 假信心）：金路径 spec + `scripts/e2e-dev.mjs`（CDP 端口启动）；本机 `npm run e2e` 为准入门槛，CI 无头环境起步 continue-on-error。
 - 浏览器冒烟（已执行多轮）：11 页面渲染、空白模板手填入库全流程、编辑器七 Tab、成员面板、美化变量工作台与多人群像预览、原始 JSON 抽屉、双主题切换、指南 sticky 几何实测。
 - 未覆盖（见 ROADMAP）：E2E 的 CI 无头稳定性、流式二进制通道（D2.2）、MVU 真机验收。

@@ -11,7 +11,7 @@
 ```bash
 npm install
 npm run dev        # 浏览器模式（IndexedDB 兜底存储）
-npm test           # vitest：140+ 用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/导出目录/社区卡回归等）
+npm test           # vitest：340+ 用例（PNG 编解码/迁移矩阵/世界书互转/LLM mock/导出目录/命令面板/社区卡回归等）
 npm run typecheck  # vue-tsc
 npm run build      # 生产构建
 ```

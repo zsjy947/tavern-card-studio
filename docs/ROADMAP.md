@@ -14,6 +14,7 @@
 - i18n 骨架只覆盖通用层（导航/命令分组/FieldAiButton 等），视图深层文案渐进迁移中；en-US 允许缺口（fallback zh-CN）。
 - E2E（`npm run e2e`）需先 `npm run e2e:dev` 启动带 CDP 端口的应用；文件导入/导出对话框在 CDP 桥不可控，相关路径由真实卡回归与 PNG codec 单测兜底。
 - 同渠道大量共享类名/组合样式的 AI 状态栏，点选定位可能查不到单一规则块——已降级为「末尾追加覆盖规则」建议，属预期行为。
+- 依赖漏洞扫描：npm audit 非 breaking 项已清（vite/source-map-js/@intlify 链）；剩余 vitest 3→5（dev 工具链 critical）、zod 3→4（本地导入 DoS high）均需 breaking 大版本升级，暂缓。Rust 侧 `cargo-audit` 因网络受限未能安装，待有网环境执行 `cargo install cargo-audit && cargo audit`。
 
 ## 二、下一迭代
 
@@ -52,3 +53,4 @@
   - 迭代六批次 E1（MVU 真机验收清单）转为本文 §一第一条人工验收项。
   - 迭代六 D2.2（流式原始二进制通道）需真机验证 WebView2 的 Raw 帧送达形态，移交迭代七（§二第 2 条）。
   - ROADMAP P1-1（工坊断点拆分）在迭代五 C2 中完整落地：extract → worldbook 两步独立重跑，产物分落 `extractedCard` 与 `worldbookEntries`。
+- **实机测试修复 + 安全加固轮**（2026-11 完成，质量轮不占迭代编号）：便携版 exe 全流程实机测试产出修复清单后实施，另经 Rust/前端双路代码审查与漏洞扫描加固。**UI/交互**：命令面板命令标题/关键词改惰性 CommandText（修复 i18n 懒加载晚于注册导致面板显示原始 key 且中文搜索无结果）、Ctrl+K 去重通道（修复键盘完全失效）、卡库回收站改切换按钮并隐藏不适用的搜索/导入导出/分类树（工具栏弃 NSpace——其动态 children 复用错位会渲染重复控件）、转换工具双写改真开关、静态检查通过显示结果面板、头部卡数与分类树口径一致、美化三件套禁用给出原因。**安全**：共享 Client 重定向逐跳校验（SSRF）、`set_export_dir` 目录白名单（防启动文件夹持久化写入）、`font_exists` 目录校验与 `font_write` 40MB 上限、`http_get_bytes` 流式前置 300MB 检查、CSP `script-src` 收敛为内联脚本精确 hash、导入去重 stableStringify 内容比对（防 FNV 碰撞覆盖）、HtmlPreview postMessage 源校验、诊断页切卡清空结果。实现细节并入 ARCHITECTURE.md（命令清单/视图层约定/测试策略）。

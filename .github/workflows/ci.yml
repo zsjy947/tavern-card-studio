@@ -46,3 +46,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # ROADMAP §二.3：E2E 进 CI（Windows runner，真实 WebView2 + tauri dev，与本地同链路）。
+  # 起步 continue-on-error: true 只收集稳定性数据（含 runner 环境差异），连续绿 10 次后转必须项。
+  e2e:
+    name: e2e 金路径（WebView2·稳定性收集中）
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: 启动 tauri dev（CDP 9222，后台）
+        run: npm run e2e:dev &
+      - name: 等待 CDP 就绪（首次 Rust 全量编译较慢）
+        run: node scripts/wait-cdp.mjs http://127.0.0.1:9222/json/version 1500000
+      - run: npm run e2e

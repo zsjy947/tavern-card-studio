@@ -80,8 +80,7 @@ pub enum StreamEvent {
 
 /// 允许的目标：https 任意；http 仅限本机回环（本地网关如 Ollama/LM Studio）。
 /// 回环判定按主机名精确匹配，防 `http://localhost.evil.com` 式前缀绕过。
-fn validate_url(url: &str) -> Result<(), String> {
-    if url.starts_with("https://") {
+fn validate_url(url: &str) -> Result<(), String> {    if url.starts_with("https://") {
         return Ok(());
     }
     if let Some(rest) = url.strip_prefix("http://") {
@@ -99,6 +98,66 @@ fn validate_url(url: &str) -> Result<(), String> {
         }
     }
     Err("仅支持 https 或本机回环地址".into())
+}
+
+/// 攒批状态机（技术债 D2.1 的可测化抽取，ROADMAP §三.7）：
+/// 窗口（~16ms）内的上游小块合并为一帧；大块达水位立即冲刷；窗口到点/流终止无条件取走。
+/// 纯同步状态机——时间由调用方以 `Instant` 注入，单测无需 tokio。
+struct Batcher {
+    pending: Vec<u8>,
+    window_open: bool,
+    window_start: Instant,
+}
+
+impl Batcher {
+    fn new() -> Self {
+        Self {
+            pending: Vec::with_capacity(16 * 1024),
+            window_open: false,
+            window_start: Instant::now(),
+        }
+    }
+
+    /// 上游一块到达：首个块开启窗口；并入攒批，达水位立即冲刷并返回该帧
+    /// （单大块可超水位整帧直发——与原内联实现一致，避免额外复制）。
+    fn push(&mut self, bytes: &[u8], now: Instant) -> Option<Vec<u8>> {
+        if !self.window_open {
+            self.window_open = true;
+            self.window_start = now;
+        }
+        self.pending.extend_from_slice(bytes);
+        if self.pending.len() >= BATCH_WATERMARK {
+            self.window_open = false;
+            return Some(std::mem::take(&mut self.pending));
+        }
+        None
+    }
+
+    /// 无条件取走已攒字节（窗口到点 / 取消 / 上游错误 / 流结束）。空攒批返回 None。
+    fn take(&mut self) -> Option<Vec<u8>> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        self.window_open = false;
+        Some(std::mem::take(&mut self.pending))
+    }
+
+    /// 窗口开启时返回剩余时间（外层据此给上游等待加超时）；未开窗返回 None（裸等下一事件）。
+    fn window_remain(&self, now: Instant) -> Option<Duration> {
+        if !self.window_open {
+            return None;
+        }
+        Some(BATCH_WINDOW.saturating_sub(now.saturating_duration_since(self.window_start)))
+    }
+}
+
+/// 发一帧数据块（base64）。通道关闭（webview 销毁）返回 Err，调用方应停止拉取上游。
+fn send_chunk(on_chunk: &Channel<StreamEvent>, frame: &[u8]) -> Result<(), ()> {
+    on_chunk
+        .send(StreamEvent::Chunk {
+            bytes_b64: base64::engine::general_purpose::STANDARD.encode(frame),
+        })
+        .map_err(|_| ())
 }
 
 /// 流式请求：headers 由前端传入（authorization 等），body 为完整请求体字符串。
@@ -154,31 +213,17 @@ pub async fn llm_post_stream(
 
     let mut stream = Box::pin(resp.bytes_stream());
     let mut rx = rx;
-    // D2.1 攒批：窗口内的上游小块合并为一帧发送；窗口到点/大块/流结束时冲刷
-    let mut pending: Vec<u8> = Vec::with_capacity(16 * 1024);
-    let mut window_open = false;
-    let mut window_start = Instant::now();
+    // D2.1 攒批：Batcher 状态机（单测覆盖）——窗口内小块合并一帧；窗口到点/大块/终止时冲刷
+    let mut batcher = Batcher::new();
 
     type WaitFuture<'a> = std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Option<Result<bytes::Bytes, reqwest::Error>>, tokio::time::error::Elapsed>> + Send + 'a>,
     >;
 
-    fn flush(pending: &mut Vec<u8>, on_chunk: &Channel<StreamEvent>) -> Result<(), ()> {
-        if pending.is_empty() {
-            return Ok(());
-        }
-        let frame = std::mem::take(pending);
-        on_chunk
-            .send(StreamEvent::Chunk {
-                bytes_b64: base64::engine::general_purpose::STANDARD.encode(&frame),
-            })
-            .map_err(|_| ())
-    }
-
     loop {
         // 窗口开启时给上游等待加「剩余窗口」超时：到点冲刷，不让尾块滞留到下个事件
-        let wait: WaitFuture<'_> = if window_open {
-            let remain = BATCH_WINDOW.saturating_sub(window_start.elapsed());
+        let now = Instant::now();
+        let wait: WaitFuture<'_> = if let Some(remain) = batcher.window_remain(now) {
             Box::pin(tokio::time::timeout(remain, stream.next()))
         } else {
             // 窗口未开：等下一个上游事件即可（map 补上与 timeout 一致的 Ok 包裹）
@@ -187,7 +232,9 @@ pub async fn llm_post_stream(
         match select(rx, wait).await {
             // 取消：断流（连接随之关闭）
             Either::Left((_, _)) => {
-                let _ = flush(&mut pending, &on_chunk);
+                if let Some(frame) = batcher.take() {
+                    let _ = send_chunk(&on_chunk, &frame);
+                }
                 let _ = on_chunk.send(StreamEvent::Done);
                 return Ok(());
             }
@@ -198,36 +245,35 @@ pub async fn llm_post_stream(
                     Ok(upstream) => upstream,
                     // 16ms 窗口到点：冲刷已攒字节
                     Err(_elapsed) => {
-                        window_open = false;
-                        if flush(&mut pending, &on_chunk).is_err() {
-                            return Ok(());
+                        if let Some(frame) = batcher.take() {
+                            if send_chunk(&on_chunk, &frame).is_err() {
+                                return Ok(());
+                            }
                         }
                         continue;
                     }
                 };
                 match upstream {
                     Some(Ok(bytes)) => {
-                        if !window_open {
-                            window_open = true;
-                            window_start = Instant::now();
-                        }
-                        pending.extend_from_slice(&bytes);
                         // 大块达水位立即冲刷，避免攒批引入额外延迟与内存占用
-                        if pending.len() >= BATCH_WATERMARK {
-                            window_open = false;
-                            if flush(&mut pending, &on_chunk).is_err() {
+                        if let Some(frame) = batcher.push(&bytes, Instant::now()) {
+                            if send_chunk(&on_chunk, &frame).is_err() {
                                 // 通道关闭（webview 销毁）：停止拉取上游
                                 return Ok(());
                             }
                         }
                     }
                     Some(Err(e)) => {
-                        let _ = flush(&mut pending, &on_chunk);
+                        if let Some(frame) = batcher.take() {
+                            let _ = send_chunk(&on_chunk, &frame);
+                        }
                         let _ = on_chunk.send(StreamEvent::Error { message: format!("读取失败：{e}") });
                         return Ok(());
                     }
                     None => {
-                        let _ = flush(&mut pending, &on_chunk);
+                        if let Some(frame) = batcher.take() {
+                            let _ = send_chunk(&on_chunk, &frame);
+                        }
                         let _ = on_chunk.send(StreamEvent::Done);
                         return Ok(());
                     }
@@ -246,7 +292,61 @@ pub fn llm_cancel_stream(state: tauri::State<'_, StreamRegistry>, session_id: St
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_url, StreamEvent, StreamRegistry};
+    use super::{validate_url, Batcher, StreamEvent, StreamRegistry, BATCH_WATERMARK, BATCH_WINDOW};
+    use std::time::{Duration, Instant};
+
+    /* ---------------- Batcher（攒批状态机，ROADMAP §三.7） ---------------- */
+
+    #[test]
+    fn batcher_accumulates_small_chunks_until_take() {
+        let mut b = Batcher::new();
+        let t0 = Instant::now();
+        assert_eq!(b.window_remain(t0), None, "未 push 前窗口不开");
+        assert!(b.push(b"hello ", t0).is_none());
+        assert!(b.push(b"world", t0).is_none());
+        // 窗口开着：剩余时间 ≤ 16ms
+        assert!(b.window_remain(t0).is_some_and(|r| r <= BATCH_WINDOW));
+        let frame = b.take().expect("take 应冲刷攒批");
+        assert_eq!(frame, b"hello world");
+        // 取空后：再 take 为 None，窗口复位
+        assert!(b.take().is_none());
+        assert_eq!(b.window_remain(t0), None);
+    }
+
+    #[test]
+    fn batcher_flushes_immediately_at_watermark_whole_block_passthrough() {
+        let mut b = Batcher::new();
+        let t0 = Instant::now();
+        assert!(b.push(b"small", t0).is_none());
+        // 单大块（>64KiB）达水位：整帧直发（可超水位），帧含此前攒入的小块
+        let big = vec![b'x'; BATCH_WATERMARK + 7];
+        let frame = b.push(&big, t0).expect("达水位应立即返回帧");
+        assert_eq!(frame.len(), 5 + BATCH_WATERMARK + 7);
+        assert!(b.take().is_none(), "冲刷后攒批为空");
+    }
+
+    #[test]
+    fn batcher_window_expire_returns_zero_remain() {
+        let mut b = Batcher::new();
+        let t0 = Instant::now();
+        b.push(b"data", t0);
+        // 窗口到点（16ms 后）：剩余时间为 0，外层据此冲刷
+        let later = t0 + BATCH_WINDOW + Duration::from_millis(1);
+        assert_eq!(b.window_remain(later), Some(Duration::ZERO));
+        let frame = b.take().expect("窗口到点应冲刷");
+        assert_eq!(frame, b"data");
+    }
+
+    #[test]
+    fn batcher_take_on_empty_is_safe() {
+        let mut b = Batcher::new();
+        let t0 = Instant::now();
+        // 取消/上游错误/流结束路径在空攒批下也安全
+        assert!(b.take().is_none());
+        b.push(b"chunk", t0);
+        assert!(b.take().is_some());
+        assert!(b.take().is_none());
+    }
 
     #[test]
     fn validate_url_allows_https_and_loopback() {

@@ -241,6 +241,18 @@ async function importCards() {
   showImportOptions.value = true;
 }
 
+/** 拖放导入：与按钮入口走同一条「先弹选项对话框 → 确认 → runImport」管线，零绕过 */
+function onDropImport(e: DragEvent) {
+  if (showTrash.value || importing.value) return;
+  const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => /\.(png|json)$/i.test(f.name));
+  if (!files.length) {
+    message.warning('只支持拖入 PNG / JSON 角色卡文件');
+    return;
+  }
+  pendingImportFiles = files;
+  showImportOptions.value = true;
+}
+
 /** 用户在选项对话框点了「开始导入」 */
 async function runPendingImport() {
   const files = pendingImportFiles;
@@ -380,7 +392,7 @@ async function restore(c: CardRow) {
 </script>
 
 <template>
-  <div class="lib-layout" data-shortcut-scope="library">
+  <div class="lib-layout" data-shortcut-scope="library" @dragover.prevent @drop.prevent="onDropImport">
     <!-- 左侧分类树（回收站模式下不适用：回收站没有分类概念） -->
     <div v-if="!showTrash" class="lib-side">
       <div class="lib-side-head">

@@ -47,6 +47,21 @@ async function removePreset(name: string) {
   presets.value = next;
 }
 
+async function renamePreset(oldName: string) {
+  const name = window.prompt('重命名预设：', oldName);
+  if (!name?.trim() || name.trim() === oldName) return;
+  const trimmed = name.trim();
+  if (presets.value.some((p) => p.name === trimmed)) {
+    message.error(`预设「${trimmed}」已存在`);
+    return;
+  }
+  // name 即身份（保存/载入/删除全按 name 匹配），按序原位替换保住「最新在前」语义
+  const next = presets.value.map((p) => (p.name === oldName ? { ...p, name: trimmed } : p));
+  await setSetting(SETTING_KEYS.importPresets, next);
+  presets.value = next;
+  message.success(`已重命名为「${trimmed}」`);
+}
+
 function applyPreset(p: ImportPreset) {
   options.value = { ...p.options };
   message.info(`已载入预设「${p.name}」`);
@@ -80,15 +95,17 @@ function confirm() {
         </div>
 
         <div v-if="presets.length">
-          <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">预设</NText>
+          <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">
+            预设（点击载入 · 双击重命名 · × 删除）
+          </NText>
           <NSpace :size="6">
             <NTag
               v-for="p in presets" :key="p.name" size="small" round :bordered="false"
-              style="cursor: pointer" @click="applyPreset(p)"
+              closable style="cursor: pointer"
+              @click="applyPreset(p)" @dblclick="renamePreset(p.name)" @close="removePreset(p.name)"
             >
               {{ p.name }}
             </NTag>
-            <NButton size="tiny" quaternary type="error" @click="removePreset(presets[0]!.name)">删最新</NButton>
           </NSpace>
         </div>
 

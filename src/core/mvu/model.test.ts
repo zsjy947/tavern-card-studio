@@ -8,12 +8,14 @@ import {
   buildInitVarYaml,
   buildUpdateRuleText,
   buildZodCode,
+  mergeMvuVarGroups,
   mvuCheckIssues,
   newMvuField,
   newMvuGroup,
   safeKey,
+  splitDriftPath,
 } from './model';
-import { MVU_DEFAULT_CONFIG, applyMvuToCard, buildMvuSuite, detectExistingMvu, removeExistingMvu } from './suite';
+import { MVU_DEFAULT_CONFIG, applyMvuToCard, buildMvuSuite, detectExistingMvu, detectMvuConfig, removeExistingMvu } from './suite';
 
 function rpgGroups(): MvuVarGroup[] {
   return JSON.parse(JSON.stringify(MVU_PRESETS.rpg!.groups)) as MvuVarGroup[];
@@ -265,5 +267,69 @@ describe('Zod 键转义（F16/TCS-R1-02）', () => {
     expect(issues.some((i) => i.includes('正 常名: 键含标识符非法字符'))).toBe(true);
     // 合法键（中文）不告警
     expect(issues.some((i) => i.includes('好的'))).toBe(false);
+  });
+});
+
+/* ---------------- mergeMvuVarGroups / splitDriftPath（ROADMAP §二.4 闭环） ---------------- */
+
+describe('mergeMvuVarGroups（AI 变量清单同步合并）', () => {
+  it('只补缺失路径，已存在字段保留用户元数据不被 AI 侧覆盖', () => {
+    const existing = [newMvuGroup('主角', [newMvuField({ name: '名称', type: 'string', description: '用户的描述' })])];
+    const incoming = [
+      newMvuGroup('主角', [
+        newMvuField({ name: '名称', type: 'number', description: 'AI 的描述' }),
+        newMvuField({ name: '等级', type: 'number', defaultValue: '1' }),
+      ]),
+    ];
+    const { groups, addedPaths } = mergeMvuVarGroups(existing, incoming);
+    expect(addedPaths).toEqual(['主角.等级']);
+    const kept = groups[0]!.fields.find((x) => x.name === '名称')!;
+    expect(kept.type).toBe('string');
+    expect(kept.description).toBe('用户的描述');
+    expect(groups[0]!.fields.find((x) => x.name === '等级')!.defaultValue).toBe('1');
+  });
+
+  it('新分组追加到末尾；嵌套字段名整段保留', () => {
+    const { groups, addedPaths } = mergeMvuVarGroups([], [newMvuGroup('货币', [newMvuField({ name: '背包.容量', type: 'number' })])]);
+    expect(groups.map((g) => g.name)).toEqual(['货币']);
+    expect(addedPaths).toEqual(['货币.背包.容量']);
+    expect(groups[0]!.fields[0]!.name).toBe('背包.容量');
+  });
+
+  it('同名组在 incoming 中重复出现时字段去重', () => {
+    const incoming = [
+      newMvuGroup('世界', [newMvuField({ name: '时间' })]),
+      newMvuGroup('世界', [newMvuField({ name: '时间' }), newMvuField({ name: '地点' })]),
+    ];
+    const { groups, addedPaths } = mergeMvuVarGroups([], incoming);
+    expect(addedPaths.sort()).toEqual(['世界.地点', '世界.时间']);
+    expect(groups[0]!.fields.map((f) => f.name).sort()).toEqual(['地点', '时间']);
+  });
+
+  it('原数组不被修改（合并产出深拷贝）', () => {
+    const existing = [newMvuGroup('主角', [newMvuField({ name: '名称' })])];
+    mergeMvuVarGroups(existing, [newMvuGroup('主角', [newMvuField({ name: '新增' })])]);
+    expect(existing[0]!.fields).toHaveLength(1);
+  });
+
+  it('splitDriftPath：首段为组、其余为嵌套字段；无点路径归「其他」组', () => {
+    expect(splitDriftPath('货币.石质天元')).toEqual({ group: '货币', field: '石质天元' });
+    expect(splitDriftPath('主角.背包.容量')).toEqual({ group: '主角', field: '背包.容量' });
+    expect(splitDriftPath('天气')).toEqual({ group: '其他', field: '天气' });
+  });
+});
+
+describe('detectMvuConfig（卡内已有套装反推注入配置）', () => {
+  it('从正则名反推 keepFloors、条目形态反推 injectMode、更新规则反推在场追踪', () => {
+    const groups = [newMvuGroup('世界', [newMvuField({ name: '时间', type: 'string' })])];
+    let card = applyMvuToCard(blankCard(), groups, buildZodCode(groups), { injectMode: 'split', keepFloors: 7, trackPresentChars: true });
+    expect(detectMvuConfig(card)).toEqual({ injectMode: 'split', keepFloors: 7, trackPresentChars: true });
+
+    card = applyMvuToCard(blankCard(), groups, buildZodCode(groups), { injectMode: 'whole', keepFloors: 3, trackPresentChars: false });
+    expect(detectMvuConfig(card)).toEqual({ injectMode: 'whole', keepFloors: 3, trackPresentChars: false });
+  });
+
+  it('无套装卡回退默认配置', () => {
+    expect(detectMvuConfig(blankCard())).toEqual(MVU_DEFAULT_CONFIG);
   });
 });

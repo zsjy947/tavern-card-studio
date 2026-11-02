@@ -19,11 +19,14 @@ import {
   buildInitVarYaml,
   buildUpdateRuleText,
   buildZodCode,
+  mergeMvuVarGroups,
   mvuCheckIssues,
   newMvuField,
+  newMvuGroup,
+  splitDriftPath,
   type MvuFieldType,
 } from '@/core/mvu/model';
-import { MVU_DEFAULT_CONFIG, applyMvuToCard, detectExistingMvu, removeExistingMvu, type MvuSuiteConfig } from '@/core/mvu/suite';
+import { MVU_DEFAULT_CONFIG, applyMvuToCard, detectExistingMvu, detectMvuConfig, removeExistingMvu, type MvuSuiteConfig } from '@/core/mvu/suite';
 import { MVU_ALWAYS_ON_GROUPS } from '@/core/mvu/model';
 import { varGroupsToPaths } from '@/core/llm/htmlgen';
 
@@ -45,6 +48,8 @@ const ext = computed(() => (data.value.extensions ?? {}) as Record<string, unkno
 function loadFromCard() {
   const saved = ext.value.tcsMvuVarGroups as MvuVarGroup[] | undefined;
   groups.value = saved ? (JSON.parse(JSON.stringify(saved)) as MvuVarGroup[]) : [];
+  // 注入配置从卡内已有套装反推（正则名/条目形态），重注入不再被默认配置覆盖用户已调参数
+  config.value = detectMvuConfig(props.card);
 }
 
 watch(() => props.card, loadFromCard, { immediate: true });
@@ -109,6 +114,20 @@ const drift = computed(() => {
 /* ---------------- 注入 / 清空 ---------------- */
 
 const existing = computed(() => detectExistingMvu(props.card));
+
+/** 漂移一键补充定义：状态栏读取了未定义的路径 → 按路径补进变量组（默认 string），随后重新注入 */
+function supplementDrift() {
+  const paths = drift.value.onlyInHtml;
+  if (!paths.length) return;
+  const incoming = paths.map((p) => {
+    const { group, field } = splitDriftPath(p);
+    return newMvuGroup(group, [newMvuField({ name: field, type: 'string' })]);
+  });
+  const { groups: merged, addedPaths } = mergeMvuVarGroups(groups.value, incoming);
+  groups.value = merged;
+  apply();
+  message.success(`已补充 ${addedPaths.length} 条未定义路径（默认文本类型，可在「设计」步调整后重新注入）`);
+}
 
 function apply() {
   if (!groups.value.length) {
@@ -268,6 +287,9 @@ const presetOptions = Object.entries(MVU_PRESETS).map(([k, v]) => ({ label: v.la
             </NAlert>
             <NAlert v-if="drift.onlyInHtml.length" type="error" :bordered="false" style="font-size: 12px" title="状态栏读取了未定义的路径">
               <div v-for="p in drift.onlyInHtml" :key="p">· {{ p }}（AI 首次更新会以 insert 初始化，或补充到变量组）</div>
+              <NButton size="tiny" type="primary" secondary style="margin-top: 6px" @click="supplementDrift">
+                一键补充定义（{{ drift.onlyInHtml.length }} 条 → 变量组并重新注入）
+              </NButton>
             </NAlert>
           </template>
         </NTabPane>

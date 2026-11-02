@@ -49,6 +49,45 @@ export function newMvuGroup(name: string, fields: MvuVarField[] = []): MvuVarGro
   return { name, fields };
 }
 
+/**
+ * 变量组合并（ROADMAP §二.4：AI 状态栏生成后把 AI 变量清单同步进 tcsMvuVarGroups）：
+ * 按 组名.字段名 取并集。已存在字段保留原定义（用户元数据 type/min/max/description 不被
+ * AI 侧覆盖），只补缺失路径；新字段 description 留空时 buildUpdateRuleText 按类型给默认 check。
+ * 返回 addedPaths 供 UI 提示本次新增了哪些路径。
+ */
+export function mergeMvuVarGroups(
+  existing: MvuVarGroup[],
+  incoming: MvuVarGroup[],
+): { groups: MvuVarGroup[]; addedPaths: string[] } {
+  const groups = JSON.parse(JSON.stringify(existing)) as MvuVarGroup[];
+  const addedPaths: string[] = [];
+  const byName = new Map(groups.map((g) => [g.name, g]));
+  for (const inc of incoming) {
+    if (!inc.name || !inc.fields.length) continue;
+    let g = byName.get(inc.name);
+    if (!g) {
+      g = newMvuGroup(inc.name);
+      groups.push(g);
+      byName.set(inc.name, g);
+    }
+    const fieldNames = new Set(g.fields.map((f) => f.name));
+    for (const f of inc.fields) {
+      if (!f.name || fieldNames.has(f.name)) continue;
+      g.fields.push(newMvuField(JSON.parse(JSON.stringify(f))));
+      fieldNames.add(f.name);
+      addedPaths.push(`${inc.name}.${f.name}`);
+    }
+  }
+  return { groups, addedPaths };
+}
+
+/** 漂移路径（组.字段，多级嵌套用点分隔）→ 归属组与字段：首段为组，其余为嵌套字段；无点路径归「其他」组 */
+export function splitDriftPath(path: string): { group: string; field: string } {
+  const i = path.indexOf('.');
+  if (i < 0) return { group: '其他', field: path };
+  return { group: path.slice(0, i), field: path.slice(i + 1) };
+}
+
 /* ------------------------------------------------------------------ */
 /* 嵌套树：`.` 路径 → 树（Zod / YAML / 更新规则三个生成器共用）          */
 /* ------------------------------------------------------------------ */

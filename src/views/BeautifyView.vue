@@ -22,9 +22,9 @@ import HtmlPreview from '@/components/HtmlPreview.vue';
 import CodeEditor from '@/components/CodeEditor.vue';
 import { useWorkspace } from '@/stores/workspace';
 import { buildCardContext } from '@/core/llm/context';
-import { STATUSBAR_SYSTEM_PROMPT, buildContinuePrompt, buildHtmlPrompt, buildTextPrompt, buildVarListPrompt, cleanHtmlComments, extractHtml, findMissingTabs, isHtmlComplete, mergeContinuation, type SbLayout, type SbStyle, type StatusbarVarPath } from '@/core/llm/htmlgen';
-import { detectExistingMvu, applyMvuToCard, MVU_DEFAULT_CONFIG } from '@/core/mvu/suite';
-import { buildZodCode } from '@/core/mvu/model';
+import { STATUSBAR_SYSTEM_PROMPT, buildContinuePrompt, buildHtmlPrompt, buildTextPrompt, buildVarListPrompt, cleanHtmlComments, extractHtml, findMissingTabs, isHtmlComplete, mergeContinuation, varListToMvuGroups, type SbLayout, type SbStyle, type StatusbarVarPath } from '@/core/llm/htmlgen';
+import { detectExistingMvu, applyMvuToCard, detectMvuConfig, MVU_DEFAULT_CONFIG } from '@/core/mvu/suite';
+import { buildZodCode, mergeMvuVarGroups } from '@/core/mvu/model';
 import type { AnyCard } from '@/core/card';
 
 const message = useMessage();
@@ -314,11 +314,19 @@ async function applyAi() {
   const finalHtml = composeFinalHtml();
 
   if (aiMode.value === 'mvu') {
-    // 反向创建/补全 MVU：卡内没有套装时从变量清单构建；已有则只补状态栏渲染正则
+    // 反向创建/补全 MVU：卡内没有套装时从变量清单构建；已有则把 AI 清单同步合并进
+    // tcsMvuVarGroups（只补缺失路径，不动用户元数据），新增路径自动进 initvar/更新规则
     if (!detectExistingMvu(next)) {
       const groups = varListToMvuGroups(aiVarList.value);
       next = applyMvuToCard(next, groups as never, buildZodCode(groups as never), { ...MVU_DEFAULT_CONFIG });
       message.info('已从变量清单反向创建 MVU 套装');
+    } else if (aiVarList.value.length) {
+      const existingGroups = (((next.data as Record<string, unknown>).extensions as Record<string, unknown> | undefined)?.tcsMvuVarGroups ?? []) as Parameters<typeof mergeMvuVarGroups>[0];
+      const { groups, addedPaths } = mergeMvuVarGroups(existingGroups, varListToMvuGroups(aiVarList.value) as never);
+      if (addedPaths.length) {
+        next = applyMvuToCard(next, groups as never, buildZodCode(groups as never), detectMvuConfig(next));
+        message.info(`已同步合并 ${addedPaths.length} 个新变量路径进变量组：${addedPaths.slice(0, 5).join('、')}${addedPaths.length > 5 ? ' 等' : ''}`);
+      }
     }
     next = applyAiStatusbarArtifacts(next, buildMvuStatusbarArtifacts(finalHtml));
   } else {
@@ -345,16 +353,6 @@ async function saveAsTemplate() {
   };
   await saveTemplate({ kind: 'statusbar', name, description: `AI 生成（${aiMode.value === 'mvu' ? 'MVU 模式' : '纯文本模式'}），点选定向改请在美化工作台打开`, payload });
   message.success('已沉淀为状态栏模板，可在模板中心查看');
-}
-
-function varListToMvuGroups(list: StatusbarVarPath[]) {
-  const map = new Map<string, { name: string; type: 'number' | 'string'; defaultValue: string; min: null; max: null; clamp: boolean; enumValues: string; recordFields: string; description: string }[]>();
-  for (const v of list) {
-    const g = v.group || '其他';
-    if (!map.has(g)) map.set(g, []);
-    map.get(g)!.push({ name: v.field, type: v.type, defaultValue: v.default, min: null, max: null, clamp: false, enumValues: '', recordFields: '', description: '' });
-  }
-  return [...map.entries()].map(([name, fields]) => ({ name, fields }));
 }
 
 /* ---------------- 元素点选定向改（P2-2） ---------------- */

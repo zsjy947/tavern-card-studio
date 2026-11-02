@@ -15,6 +15,7 @@ import {
   MVU_OUTPUT_EMPHASIS_TEXT,
   MVU_OUTPUT_FORMAT_TEXT,
   MVU_PLACEHOLDER,
+  MVU_PRESENT_CHARS_FIELD,
   MVU_SCRIPT_BUTTONS,
   MVU_VARIABLE_LIST_TEXT,
   MVU_ALWAYS_ON_GROUPS,
@@ -290,6 +291,31 @@ export function applyMvuToCard(card: AnyCard, groups: MvuVarGroup[], zodCode: st
 
 /** [不发送]界面占位符 正则的固定名（三方校验等场景引用） */
 export const MVU_PLACEHOLDER_REGEX_NAME = '[不发送]界面占位符';
+
+/**
+ * 从卡内已有 MVU 套装反推注入配置。合并注入（AI 状态栏同步合并 / 变量 Tab 重注入）时用，
+ * 避免用默认配置覆盖用户已调的 N 楼数 / 拆分模式 / 在场追踪。无法识别的项回退默认值。
+ */
+export function detectMvuConfig(card: AnyCard): MvuSuiteConfig {
+  const data = card.data as Record<string, unknown>;
+  const ext = (data.extensions ?? {}) as Record<string, unknown>;
+  const regexes = (ext.regex_scripts as { scriptName?: string }[] | undefined) ?? [];
+  // keepFloors：从「只发送最新N楼的变量更新」正则名反推
+  const floors = regexes
+    .map((r) => /只发送最新(\d+)楼的变量更新/.exec(r.scriptName ?? '')?.[1])
+    .find((v): v is string => !!v);
+  // injectMode：拆分模式下分组条目名为「{组名}变量」（mvuGroupEntryComment）
+  const groups = (ext.tcsMvuVarGroups as { name: string }[] | undefined) ?? [];
+  const book = (data.character_book as { entries?: { comment?: string }[] } | undefined)?.entries ?? [];
+  const split = groups.length > 0 && book.some((e) => groups.some((g) => (e.comment ?? '') === mvuGroupEntryComment(g.name)));
+  // trackPresentChars：更新规则条目内容含固定字段名
+  const rule = (book as { comment?: string; content?: string }[]).find((e) => (e.comment ?? '').includes('变量更新规则'))?.content ?? '';
+  return {
+    keepFloors: floors ? Math.max(1, Number(floors)) : MVU_DEFAULT_CONFIG.keepFloors,
+    injectMode: split ? 'split' : 'whole',
+    trackPresentChars: rule.includes(MVU_PRESENT_CHARS_FIELD),
+  };
+}
 
 function stamp(): string {
   return Date.now().toString(36);

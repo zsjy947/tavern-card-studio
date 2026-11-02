@@ -1,15 +1,19 @@
 <script setup lang="ts">
-/** Ctrl+K 命令面板：命令注册表 + 模糊搜索 + 键盘导航 */
+/** Ctrl+K 命令面板：命令注册表 + 模糊搜索 + `>` 前缀命令模式 + 键盘导航 */
 import { computed, ref, watch } from 'vue';
 import { NModal, NInput, NTag, NEmpty, NIcon } from 'naive-ui';
-import { SearchOutline, ArrowForwardOutline } from '@vicons/ionicons5';
-import { searchCommands, resolveText, type CommandItem } from '@/composables/useCommandPalette';
+import { SearchOutline, TerminalOutline, ArrowForwardOutline } from '@vicons/ionicons5';
+import { searchCommands, matchCommands, parsePaletteQuery, resolveText, type CommandItem } from '@/composables/useCommandPalette';
 
 const show = defineModel<boolean>('show', { default: false });
 const query = ref('');
 const activeIndex = ref(0);
 
-const results = computed<CommandItem[]>(() => searchCommands(query.value));
+/** `>` 前缀 = 命令模式：按 id/名称匹配直接执行；其余为模糊搜索 */
+const parsed = computed(() => parsePaletteQuery(query.value));
+const results = computed<CommandItem[]>(() =>
+  parsed.value.mode === 'command' ? matchCommands(parsed.value.arg) : searchCommands(parsed.value.query),
+);
 
 watch(show, (v) => {
   if (v) {
@@ -51,8 +55,12 @@ function onKeydown(e: KeyboardEvent) {
   <NModal v-model:show="show" transform-origin="center" style="width: 560px; max-width: 92vw">
     <div class="palette">
       <div class="palette-input">
-        <NIcon size="18" class="palette-icon"><SearchOutline /></NIcon>
-        <NInput v-model:value="query" placeholder="搜索命令 / 页面 / 最近卡片…（↑↓ 选择，Enter 执行）"
+        <NIcon size="18" class="palette-icon">
+          <TerminalOutline v-if="parsed.mode === 'command'" />
+          <SearchOutline v-else />
+        </NIcon>
+        <NInput v-model:value="query"
+          :placeholder="parsed.mode === 'command' ? '命令模式：输入命令 id 或名称，Enter 执行…' : '搜索命令 / 页面 / 最近卡片…（↑↓ 选择，Enter 执行；输入 > 进入命令模式）'"
           bordered placement="left" @keydown="onKeydown" autofocus style="border: none" />
       </div>
       <div class="palette-list">
@@ -62,7 +70,7 @@ function onKeydown(e: KeyboardEvent) {
           class="palette-item" :class="{ 'palette-item-active': i === activeIndex }"
           @mouseenter="activeIndex = i" @click="execute(cmd)"
         >
-          <NTag size="tiny" :bordered="false" round>{{ resolveText(cmd.group) }}</NTag>
+          <NTag size="tiny" :bordered="false" round>{{ parsed.mode === 'command' ? cmd.id : resolveText(cmd.group) }}</NTag>
           <span class="palette-title">{{ resolveText(cmd.title) }}</span>
           <NIcon class="palette-go"><ArrowForwardOutline /></NIcon>
         </div>

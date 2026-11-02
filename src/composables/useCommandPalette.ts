@@ -60,3 +60,22 @@ export function searchCommands(query: string): CommandItem[] {
       || resolveText(a.title).localeCompare(resolveText(b.title)),
     );
 }
+
+/* ---------------- `>` 前缀命令模式（ROADMAP §三.5） ---------------- */
+
+/** 解析输入：`>` 前缀 = 命令模式（按 id/标题匹配后直接执行），其余为模糊搜索 */
+export function parsePaletteQuery(query: string): { mode: 'command'; arg: string } | { mode: 'search'; query: string } {
+  const t = query.trimStart();
+  return t.startsWith('>') ? { mode: 'command', arg: t.slice(1).trim() } : { mode: 'search', query };
+}
+
+/** 命令模式候选：arg 对 id/标题做包含匹配（空 arg 列出全部命令），排序同 searchCommands */
+export function matchCommands(arg: string): CommandItem[] {
+  const a = arg.trim().toLowerCase();
+  return listCommands()
+    .filter((c) => !a || c.id.toLowerCase().includes(a) || resolveText(c.title).toLowerCase().includes(a))
+    .sort((x, y) =>
+      resolveText(x.group).localeCompare(resolveText(y.group))
+      || resolveText(x.title).localeCompare(resolveText(y.title)),
+    );
+}

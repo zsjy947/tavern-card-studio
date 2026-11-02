@@ -7,7 +7,7 @@
  */
 import { readonly, ref } from 'vue';
 
-export type ShortcutScope = 'global' | 'library' | 'editor' | 'beautify' | 'converter';
+export type ShortcutScope = 'global' | 'library' | 'editor' | 'beautify' | 'converter' | 'preview';
 
 export interface ShortcutDef {
   id: string;
@@ -75,6 +75,7 @@ export const SCOPE_LABELS: Record<ShortcutScope, string> = {
   editor: '编辑器',
   beautify: '美化',
   converter: '转换器',
+  preview: '预览',
 };
 
 export function listShortcuts(): (ShortcutDef & { comboNormalized: string; scopeLabel: string })[] {

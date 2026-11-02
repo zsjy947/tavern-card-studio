@@ -14,6 +14,8 @@ import { useWorkspace } from '@/stores/workspace';
 import type { CardVersionRow } from '@/services/types';
 import { countTokens } from '@/core/stats/tokens';
 import { useCardHistory } from '@/composables/useCardHistory';
+import { registerShortcut, unregisterShortcut } from '@/composables/useShortcuts';
+import { registerCommand, unregisterCommand } from '@/composables/useCommandPalette';
 import { pickFiles } from '@/utils/file';
 import { imageFileToCoverDataUrl } from '@/utils/image';
 import CardCover from '@/components/CardCover.vue';
@@ -175,6 +177,58 @@ const totalTokens = computed(() => {
 
 const specLabel = computed(() => (card.value ? { v1: 'V1', v2: 'V2', v3: 'V3' }[cardSpec(card.value)] : ''));
 
+/* ---------------- 页签受控 + scope 快捷键 / 命令（ROADMAP §三.5） ---------------- */
+
+const EDITOR_TABS = [
+  { key: 'basic', label: '基础信息' },
+  { key: 'greetings', label: '描述与开场白' },
+  { key: 'worldbook', label: '世界书' },
+  { key: 'members', label: '角色成员' },
+  { key: 'regex', label: '正则' },
+  { key: 'scripts', label: '脚本' },
+  { key: 'mvu', label: '变量' },
+  { key: 'extensions', label: '扩展' },
+] as const;
+const activeTab = ref<string>('basic');
+
+function switchTabByIndex(i: number) {
+  const t = EDITOR_TABS[i];
+  if (t) activeTab.value = t.key;
+}
+
+function cycleTab(delta: 1 | -1) {
+  const i = EDITOR_TABS.findIndex((t) => t.key === activeTab.value);
+  activeTab.value = EDITOR_TABS[(i + delta + EDITOR_TABS.length) % EDITOR_TABS.length]!.key;
+}
+
+// 编辑器内全是输入框：快捷键注册表对「无修饰键纯按键」在输入场景直接放行，
+// 因此页签跳转全部带修饰键（Alt+数字直达 / Ctrl+Alt+方向循环），输入中也能用
+onMounted(() => {
+  for (let i = 0; i < EDITOR_TABS.length; i++) {
+    const idx = i;
+    registerShortcut({ id: `editor:tab-${idx + 1}`, combo: `Alt+${idx + 1}`, scope: 'editor', description: `跳到「${EDITOR_TABS[idx]!.label}」页签`, handler: () => switchTabByIndex(idx) });
+  }
+  registerShortcut({ id: 'editor:tab-next', combo: 'Ctrl+Alt+ArrowDown', scope: 'editor', description: '下一个页签', handler: () => cycleTab(1) });
+  registerShortcut({ id: 'editor:tab-prev', combo: 'Ctrl+Alt+ArrowUp', scope: 'editor', description: '上一个页签', handler: () => cycleTab(-1) });
+  // 命令面板暴露「当前 Tab 动作」：跳页签命令随编辑器挂载注册、卸载注销
+  for (const t of EDITOR_TABS) {
+    registerCommand({
+      id: `editor:tab:${t.key}`,
+      title: () => `切换到「${t.label}」页签`,
+      group: () => '编辑器',
+      keywords: () => `编辑器 页签 ${t.label} tab`,
+      run: () => { activeTab.value = t.key; },
+    });
+  }
+});
+
+onBeforeUnmount(() => {
+  for (let i = 0; i < EDITOR_TABS.length; i++) unregisterShortcut(`editor:tab-${i + 1}`);
+  unregisterShortcut('editor:tab-next');
+  unregisterShortcut('editor:tab-prev');
+  for (const t of EDITOR_TABS) unregisterCommand(`editor:tab:${t.key}`);
+});
+
 async function switchSpec(target: 'v2' | 'v3') {
   if (!card.value) return;
   card.value = convertSpec(card.value, target);
@@ -207,7 +261,7 @@ async function rollback(v: CardVersionRow) {
 
 <template>
   <NSpin v-if="!card" style="min-height: 200px" />
-  <div v-else class="editor-root">
+  <div v-else class="editor-root" data-shortcut-scope="editor">
     <div class="editor-header">
       <NSpace align="center" :size="10">
         <NButton size="small" quaternary @click="router.push('/library')">
@@ -248,7 +302,7 @@ async function rollback(v: CardVersionRow) {
       </NSpace>
     </div>
 
-    <NTabs type="line" animated default-value="basic" style="margin-top: 4px">
+    <NTabs type="line" animated v-model:value="activeTab" style="margin-top: 4px">
       <NTabPane name="basic" tab="基础信息">
         <BasicTab :card="card" @change="markDirty" />
       </NTabPane>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registerCommand, unregisterCommand, listCommands, searchCommands, fuzzyMatch, resolveText } from './useCommandPalette';
+import { registerCommand, unregisterCommand, listCommands, searchCommands, fuzzyMatch, resolveText, matchCommands, parsePaletteQuery } from './useCommandPalette';
 
 describe('命令面板注册表', () => {
   it('注册/注销/列举', () => {
@@ -58,5 +58,27 @@ describe('模糊搜索', () => {
     expect(groups).toEqual(expected);
     unregisterCommand('b');
     unregisterCommand('a');
+  });
+});
+
+describe('命令模式（`>` 前缀，ROADMAP §三.5）', () => {
+  it('parsePaletteQuery：> 前缀进命令模式并剥离前缀，其余为搜索', () => {
+    expect(parsePaletteQuery('>nav:/library')).toEqual({ mode: 'command', arg: 'nav:/library' });
+    expect(parsePaletteQuery('  > 卡库 ')).toEqual({ mode: 'command', arg: '卡库' });
+    expect(parsePaletteQuery('打开卡库')).toEqual({ mode: 'search', query: '打开卡库' });
+  });
+
+  it('matchCommands：空参列出全部；按 id / 标题包含匹配', () => {
+    registerCommand({ id: 'test:alpha', title: '打开卡库', group: '导航', run: () => {} });
+    registerCommand({ id: 'test:beta', title: '切换主题：暗夜', group: '主题', run: () => {} });
+    try {
+      expect(matchCommands('')).toHaveLength(2);
+      expect(matchCommands('test:al').map((c) => c.id)).toEqual(['test:alpha']);
+      expect(matchCommands('主题').map((c) => c.id)).toEqual(['test:beta']);
+      expect(matchCommands('不存在')).toHaveLength(0);
+    } finally {
+      unregisterCommand('test:alpha');
+      unregisterCommand('test:beta');
+    }
   });
 });

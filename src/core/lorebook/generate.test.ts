@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AnyCard } from '@/core/card';
+import type { AnyCard, BookEntry } from '@/core/card';
 import { blankCard } from '@/core/card';
 import {
   WB_BATCH_SIZE,
@@ -101,5 +101,30 @@ describe('worldbook generate 批处理纯逻辑', () => {
     book.entries.push(shuoApplyEntry({ comment: 'c', keys: ['k'], secondary_keys: [], content: 'x', constant: false, insertion_order: 100, enabled: true }, 0));
     data.character_book = book;
     expect(book.entries).toHaveLength(1);
+  });
+});
+
+/* ---------------- 批量注入性能基线（ROADMAP §三.3） ---------------- */
+
+describe('批量注入性能基线（极限目标 500 条）', () => {
+  it('500 条全量朔规则注入（含响应式消毒深拷贝）在基线时间内完成', () => {
+    // 与 WbBatchPanel.inject 同构的注入路径：JSON 深拷贝既有书（对齐工坊「响应式消毒」约定）
+    // → 逐条 shuoApplyEntry → 追加。基线预算 2s，用于捕获 O(n²) 退化而非精确计时。
+    const existing: BookEntry[] = [];
+    for (let i = 0; i < 200; i++) {
+      existing.push(shuoApplyEntry({ comment: `旧条目${i}`, keys: [`旧${i}`], secondary_keys: [], content: '既有内容'.repeat(50), constant: false, insertion_order: 100, enabled: true }, i));
+    }
+    const raws = [];
+    for (let i = 0; i < 500; i++) {
+      raws.push({ comment: `条目${i}`, keys: [`关键词${i}`], secondary_keys: [], content: '生成内容'.repeat(100), constant: i % 5 === 0, insertion_order: 100, enabled: true });
+    }
+    const t0 = performance.now();
+    const next = JSON.parse(JSON.stringify(existing)) as BookEntry[];
+    const entries = raws.map((e, i) => shuoApplyEntry(e, next.length + i));
+    next.push(...entries);
+    const elapsed = performance.now() - t0;
+    expect(next).toHaveLength(700);
+    expect(entries[0]!.comment).toBe('条目0');
+    expect(elapsed).toBeLessThan(2000);
   });
 });

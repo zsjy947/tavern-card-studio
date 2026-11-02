@@ -84,7 +84,8 @@ const columns = [
     <NSpace align="center" :size="8" style="margin-bottom: 6px">
       <NCheckbox :checked="allChecked" @update:checked="toggleAll">全选（{{ checked.length }}/{{ rows.length }}）</NCheckbox>
     </NSpace>
-    <NDataTable :columns="columns" :data="rows" size="small" :bordered="false" :max-height="320" :row-key="(r: WbReviewRow) => r.key" />
+    <!-- 大型/超大型目标 150-500 条：开虚拟滚动只渲染可视行（ROADMAP §三.3） -->
+    <NDataTable :columns="columns" :data="rows" size="small" :bordered="false" :max-height="320" virtual-scroll :row-key="(r: WbReviewRow) => r.key" />
     <pre v-if="expanded" class="wb-review-content">{{ rows.find((r) => r.key === expanded)?.content }}</pre>
   </div>
 </template>

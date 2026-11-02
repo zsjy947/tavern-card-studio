@@ -98,8 +98,8 @@ Vue 3 `<script setup>` + TypeScript + Naive UI + Pinia + Vue Router（hash 模�
 - **extract5.ts（迭代五 C，小说转世界书 5 类轨迹引擎）**：每类独立 AI 提取——角色（境界/位置/物品/关系/行为模式 5 轨迹；重要角色不限量、次要 ≤15、路人不收）、事件线（主线/支线/暗线/伏笔四值，支线+暗线+伏笔合计 ≤10）、时间线（只收含具体数字的已发生事实距离）、设定（功法/丹药/地理/势力/常识，严格上限）、物品轨迹（**只存获得/消耗章节，不存当前持有快照**——RP 时按章节 N 动态判定持有）。写作铁律注入 system（白描/八股化禁令/章节号锚定/关系行为禁抽象标签/事件线四值/中文引号）；主角双模式（replace：{{user}} 替代主角，npc：主角作为 NPC 完整成条目）。`chunkNovel`：章节优先（≥3 章按每片 N 章分组），字数回退（句号断尾）。`normalizeExtractionArray` 归一化（枚举收敛、空对象过滤）。`extractionToWorldEntries`：**蓝绿灯自动分配**（单主角卡重要角色蓝灯 before_char / 多主角卡配角绿灯 after_char、次要角色绿灯、主线蓝灯其余绿灯 keys=线名+关键角色前3、时间线恒蓝灯、设定物品绿灯 keys=[名称]）+ 朔递归规则 + YAML 序列化（全中文引号）。
 
 ### mvu（model / suite，迭代五 D）
-- `model.ts`：变量设计器核心——`MvuVarGroup/MvuVarField` 模型（前缀语义：`_` 只读 AI 不可改、`$` 隐藏 AI 不可见；字段名 `.` 表达嵌套路径构建嵌套树）；三产物生成器 `buildZodCode`（z.coerce.number/.prefault/.transform clamp，禁 z.number/.default/.min/.max/strict/passthrough——MVU 框架约束）、`buildInitVarYaml`（[initvar] 初值）、`buildUpdateRuleText`（type/range/check 结构、`_` 只读不列、同类路径合并、无 description 纯 string 合并逗号列表）；lint 自查 `mvuCheckIssues`；六快捷预设（RPG/修仙/校园/模拟经营/恋爱/生存）；固定模板文本（变量输出格式 `<UpdateVariable><Analysis/><JSONPatch/>`（replace/delta/insert/remove/move 变体）、输出格式强调、变量列表宏——MagVarUpdate 教程社区规范文本，注明来源维护）。
-- `suite.ts`：**13 件套一键注入**——2 TavernHelper 脚本（bundle.js 导入含 6 按钮组 + Zod Schema）+ 5（或 4+N 按组拆分：世界/系统/环境/主角恒蓝灯其余绿灯 keys=[组名]）世界书条目（统一 extensions.position=4/depth=0/order=200/双禁递归；[initvar] 禁用态仍被框架读取）+ 4 正则（更新中负向前瞻匹配流式未闭合块→展开面板 / 完整→折叠面板 / 只发最新 N 楼 promptOnly minDepth=N×2 / 界面占位符不发送）+ 开场白占位符 `<StatusPlaceHolderImpl/>`。全部幂等：`detectExistingMvu`/`removeExistingMvu` 关键词组清理后注入，重复执行不叠加；变量组定义持久化 `extensions.tcsMvuVarGroups`。
+- `model.ts`：变量设计器核心——`MvuVarGroup/MvuVarField` 模型（前缀语义：`_` 只读 AI 不可改、`$` 隐藏 AI 不可见；字段名 `.` 表达嵌套路径构建嵌套树）；三产物生成器 `buildZodCode`（z.coerce.number/.prefault/.transform clamp，禁 z.number/.default/.min/.max/strict/passthrough——MVU 框架约束）、`buildInitVarYaml`（[initvar] 初值）、`buildUpdateRuleText`（type/range/check 结构、`_` 只读不列、同类路径合并、无 description 纯 string 合并逗号列表）；lint 自查 `mvuCheckIssues`；`mergeMvuVarGroups`（AI 变量清单同步合并：按 组名.字段名 取并集只补缺失路径、已存在字段保留用户元数据）+ `splitDriftPath`（漂移路径 → 组/字段，无点路径归「其他」组）；六快捷预设（RPG/修仙/校园/模拟经营/恋爱/生存）；固定模板文本（变量输出格式 `<UpdateVariable><Analysis/><JSONPatch/>`（replace/delta/insert/remove/move 变体）、输出格式强调、变量列表宏——MagVarUpdate 教程社区规范文本，注明来源维护）。
+- `suite.ts`：**13 件套一键注入**——2 TavernHelper 脚本（bundle.js 导入含 6 按钮组 + Zod Schema）+ 5（或 4+N 按组拆分：世界/系统/环境/主角恒蓝灯其余绿灯 keys=[组名]）世界书条目（统一 extensions.position=4/depth=0/order=200/双禁递归；[initvar] 禁用态仍被框架读取）+ 4 正则（更新中负向前瞻匹配流式未闭合块→展开面板 / 完整→折叠面板 / 只发最新 N 楼 promptOnly minDepth=N×2 / 界面占位符不发送）+ 开场白占位符 `<StatusPlaceHolderImpl/>`。全部幂等：`detectExistingMvu`/`removeExistingMvu` 关键词组清理后注入，重复执行不叠加；变量组定义持久化 `extensions.tcsMvuVarGroups`；`detectMvuConfig` 从卡内已有套装反推注入配置（正则名反推 keepFloors、条目形态反推 injectMode、更新规则反推在场追踪）——合并注入/变量 Tab 重注入时用，避免默认配置覆盖用户已调参数。
 
 ### css（locate / pickerScript，迭代六 B2）
 - `locate.ts`：CSS 文本规则块定位——栈式扫描 `selector{body}` 区间（注释/字符串感知、@media 嵌套），选择器归一化匹配（大小写/空白/伪类剥离）；未命中降级为「末尾追加覆盖规则」建议而非报错。
@@ -167,16 +167,16 @@ dataHash 为 64bit FNV-1a（非加密哈希）：命中后再以 `stableStringif
 `applyMvuSuite(cardId, groups, config)`：消毒 → `applyMvuToCard`（幂等清理后注入 13 件套）→ 保存 + 强制快照；`clearMvu` 全量清空（条目/脚本/正则/占位符/变量组）；`hasMvu` 供 UI「替换」提示。核心构建在 core/mvu（纯函数），本层只管持久化与快照。
 
 ### 世界书 AI 批量生成（lorebookAiService，迭代五 B）
-批次循环编排：每批 30 → `runFieldAiJson`（流式 onDelta）→ 归一化防重 → 评审表。**批次级共享重试预算**（默认 3 次，失败等 15s 重试当前批——客户端请求级退避耗尽后才到这，两层不叠加）；暂停/续跑为 Promise 门（gate），AbortSignal 随时终止。参考小说素材存 `extensions.tcsReferenceNovel`，批量/单条重生成/继续补充三类 prompt 共用。
+批次循环编排：每批 30 → `runFieldAiJson`（流式 onDelta）→ 归一化防重 → 评审表（WbReviewTable 开 NDataTable 虚拟滚动，150-500 条大目标只渲染可视行；批量注入有性能基线测试防 O(n²) 退化）。**批次级共享重试预算**（默认 3 次，失败等 15s 重试当前批——客户端请求级退避耗尽后才到这，两层不叠加）；暂停/续跑为 Promise 门（gate），AbortSignal 随时终止。参考小说素材存 `extensions.tcsReferenceNovel`，批量/单条重生成/继续补充三类 prompt 共用。
 
 ### 小说 5 类轨迹提取（novelExtractService，迭代五 C）
 `ExtractState`（config + 分片缓存 + extraction + doneKeys）由调用方持有，按 `(chunkIndex:type)` 粒度断点续跑；逐片×逐类调用（同类已提取名单作为防重复摘要传入）；每类完成后可选 AI 自检修正（失败不致命保持原结果）。工坊 worldbook 阶段与编辑器「小说提取」面板共用。
 
-### 最近转换（converterService，P1-4）
-元数据落 settings（`pushRecent` 上限 50 淘汰最老、同 id 幂等）；≤2MB 产物留进程内缓存（会话级）供「重新下载」，>2MB 只记元数据并禁用下载入口。
+### 最近转换（converterService，P1-4 + §三.4 断点续跑）
+元数据落 settings（`pushRecent` 上限 50 淘汰最老、同 id 幂等）；≤2MB 产物留进程内缓存（会话级）供「重新下载」，>2MB 只记元数据并禁用下载入口。**批量断点续跑**：每次多文件转换登记 `BatchRun`（上限 5 条，settings 键 `recent_batch_runs`），per-file 记录带 `batchId/status/sourceHash`——失败也留痕（`status:'failed'`）；下次进入转换页检测无 `finishedAt` 的 run 提示续跑，同方向重选文件按 `文件名+源内容指纹（bytesHash FNV-1a）` 跳过已完成，同会话产物缓存还在则回填 zip；报告失败行可单条重试。
 
-### 快捷键（useShortcuts，P2-4）
-表格式注册 `{ id, combo, scope, description, handler }` 全局单例 registry（同 scope+combo 冲突 console.warn）；LayoutView 挂统一 keydown 捕获层——**输入框聚焦时带修饰键的组合仍生效（Ctrl+K），纯按键（F2/Delete/方向键）不触发**；scope 匹配优先当前页面（`data-shortcut-scope` 标记）回退 global；设置页只读表格与注册表同源。
+### 快捷键（useShortcuts，P2-4 + §三.5 编辑器 scope）
+表格式注册 `{ id, combo, scope, description, handler }` 全局单例 registry（同 scope+combo 冲突 console.warn）；LayoutView 挂统一 keydown 捕获层——**输入框聚焦时带修饰键的组合仍生效（Ctrl+K），纯按键（F2/Delete/方向键）不触发**；scope 匹配优先当前页面（`data-shortcut-scope` 标记）回退 global；设置页只读表格与注册表同源。编辑器 scope（`data-shortcut-scope="editor"` + NTabs 受控化 `activeTab`）：Alt+1..8 页签直达、Ctrl+Alt+↑↓ 循环、随挂载/卸载注册注销——编辑器内全是输入框，页签跳转必须带修饰键才能在输入场景生效；页签跳转同时暴露为命令面板命令（`editor:tab:*`）。
 
 ### 模板中心（templateService）
 - 内置模板播种：按 id 增量补种 + **builtin 行随版本刷新**（payload/名称/描述与代码定义不一致时覆盖，createdAt 保留）——保证老库能拿到新版内置模板；用户修改 builtin 走副本语义，覆盖安全。
@@ -215,14 +215,15 @@ dataHash 为 64bit FNV-1a（非加密哈希）：命中后再以 `stableStringif
 
 `commands/export.rs` 目录白名单：`set_export_dir` 仅接受 Rust 侧计算的默认导出目录或 `pick_export_dir` 记录的用户选择（进程内 `LAST_PICKED_DIR`），任意绝对路径拒绝——否则渲染进程（含 XSS 场景）可注册启动文件夹后经 `write_export` 持久化写入。
 
-`tauri.conf.json` CSP：`script-src 'self' + 内联引导脚本的精确 SHA-256 hash`（不再 `'unsafe-inline'`）；`style-src` 保留 `'unsafe-inline'`——naive-ui cssr 在运行时动态注入 `<style>`，Tauri 的 nonce 替换会拦掉它们（这正是 `dangerousDisableAssetCspModification: true` 的成因），故 CSP 按原文使用、内联脚本以 hash 放行。改动 index.html 内联脚本后需重算 hash。
+`tauri.conf.json` 窗口 `dragDropEnabled: false`：关掉 Tauri 原生拖放拦截以放行 HTML5 拖放事件（卡库拖放导入依赖此开关；副作用由 main.ts 全局 drop 兜底消化）。CSP：`script-src 'self' + 内联引导脚本的精确 SHA-256 hash`（不再 `'unsafe-inline'`）；`style-src` 保留 `'unsafe-inline'`——naive-ui cssr 在运行时动态注入 `<style>`，Tauri 的 nonce 替换会拦掉它们（这正是 `dangerousDisableAssetCspModification: true` 的成因），故 CSP 按原文使用、内联脚本以 hash 放行。改动 index.html 内联脚本后需重算 hash。
 
 ## 视图层约定
 
 - 路由 hash 模式（file:// 与 Tauri 协议下可用）。
 - naive-ui `NGrid` 的直接子元素只能是 `NGi`，其余组件会被静默丢弃不渲染（真实事故：诊断页明细面板空白）；单卡片布局直接用 NCard。**NSpace 同类坑**：其运行时扁平化 slot children 误用 `STABLE_FRAGMENT` 且包裹层 key 恒为常量，children 含 `v-if` 条件切换时会 vnode 复用错位渲染出重复控件（真实事故：卡库工具栏切回收站出现 6 个重复按钮）——条件子元素改普通 flex 容器或每个控件独立 `v-if`（卡库工具栏即此实现）。
 - **NInput 的 `@change` 在实际输入路径不可靠**（composition/change 事件链路问题）：需要失焦提交的输入用原生 `<input>` + 原生 `change` 事件（变量工作台 key 编辑即此实现）。
-- **命令面板（Ctrl+K）两条约定**：① 命令的标题/分组/关键词用惰性 `CommandText`（string | () => string）注册——i18n 消息懒加载晚于组件挂载，注册时固化字符串会永久显示原始 key；面板渲染/搜索时才经 `resolveText` 求值。② Ctrl+K 只经 `useShortcuts` 注册表分发，**勿再并行挂全局 keydown 直调 toggle**——同一按键两次 toggle 在同 tick 内批量合并，净变化为零，面板完全无法用键盘打开（真实事故）。
+- **命令面板（Ctrl+K）三条约定**：① 命令的标题/分组/关键词用惰性 `CommandText`（string | () => string）注册——i18n 消息懒加载晚于组件挂载，注册时固化字符串会永久显示原始 key；面板渲染/搜索时才经 `resolveText` 求值。② Ctrl+K 只经 `useShortcuts` 注册表分发，**勿再并行挂全局 keydown 直调 toggle**——同一按键两次 toggle 在同 tick 内批量合并，净变化为零，面板完全无法用键盘打开（真实事故）。③ `>` 前缀 = 命令模式：`parsePaletteQuery` 分流，`matchCommands` 按 id/标题包含匹配，列表项显示命令 id 而非分组——直接执行注册表动作的旁路（§三.5）。
+- **拖放导入约定**：桌面端 `tauri.conf.json` `dragDropEnabled: false`（Tauri 原生拖放拦截会吞掉 HTML5 drop 事件）；`main.ts` 全局 `dragover/drop` preventDefault 兜底（防文件拖到无 handler 区域触发 WebView 导航离开）；卡库根容器 `@dragover.prevent @drop.prevent` 接 `onDropImport`——与「导入」按钮走同一条「先弹导入选项对话框 → 确认 → runImport」管线，零绕过。
 - **Vue reactive proxy 不能 structuredClone**（DataCloneError）：深拷贝一律 `JSON.parse(JSON.stringify())`（BeautifyView 工作副本、saveCard 消毒均如此）。
 - **布局滚动几何**：两级 n-layout 各自渲染 `.n-layout-scroll-container` 且都参与滚动（页头会滚走、NLayoutContent 被内容撑高使 sticky 失效）。App.vue 已修复：两级 scroll-container 均不滚动、内层列布局，NLayoutContent 内部 `.n-scrollbar-container` 成为唯一受限视口——所有页面 `position: sticky`（指南目录/卡库分类栏）随之生效。
 - **主题切换统一渐变**：body 与主要面板/容器清单 `.25s` 同节奏（`!important` 压过 naive 动态注入）；收窄清单不用 `*` 通配。
@@ -243,9 +244,11 @@ dataHash 为 64bit FNV-1a（非加密哈希）：命中后再以 `stableStringif
 
 ## 测试策略
 
-- vitest 348 用例（41 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等；命令面板惰性 CommandText 回归——注册时 key、解析时取最新值）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
+- vitest 366 用例（42 文件，含 2 组外部样本条件跳过）：core 单测为主力（编解码往返、迁移矩阵、互转语义、mock fetch 的重试/续写/SSE/超时/错误体、epub 构造、扫描折叠、静态检查；迭代五/六新增：MVU 三产物与套装幂等、批量生成批处理纯逻辑、5 类提取切片/归一化/蓝绿灯分配、AI 状态栏完整性检测与续写、卡上下文预算、CSS 规则定位、导出文件名模板、导入拆分、最近转换上限/阈值、listPage 分页等；命令面板惰性 CommandText 回归——注册时 key、解析时取最新值；`>` 前缀命令模式 parsePaletteQuery/matchCommands）；services 集成用 MemoryStore 全链路（导入去重/快照回滚/备份恢复/三件套幂等/改名重写器/模板播种刷新/AI 状态栏产物）；组件测试（@vue/test-utils + happy-dom：TokenBadge estimated 标记与阈值配色、FieldAiButton 三模式回调与禁用态）；基础设施单测（tauriStream 事件驱动、appearance init 分步容错、pickFiles 兜底、getStore 失败重试）；真实社区卡导入回归（13 张 discord类脑卡：PNG 抽取→归一化→诊断→三件套插入产物再归一化 + **组装透视引擎冒烟**（可组装不抛错/trace 覆盖全条目/同 seed 重放一致），样本缺失自动跳过）；
 - **黄金 fixture 门禁**（迭代八）：`tests/fixtures/st-golden/*.json` 12 个合成场景冻结组装器的消息结构（块序/世界书语义/正则双通路/宏/注入点），`UPDATE_GOLDEN=1 npx vitest run st-golden` 重新冻结后人工审 diff；真机样本（source:"real-st"）落同目录走同一校验。真机校准的导出操作步骤为本地文档 `docs/st-golden-guide.md`（不入库）。
-- Rust cargo test（字体文件名与 font_exists_in、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、导出文件名清洗、共享 Client 重定向策略）。
+- **生成类 prompt 快照回归**（§三.7）：`src/core/llm/promptSnapshots.test.ts` 把变量清单/状态栏 HTML/纯文本/续写/世界书批量生成的提示词全文冻结进快照——防无意改词导致 LLM 产出漂移；有意调整后 `npx vitest run -u` 重冻结并在提交说明写明动机。
+- **性能基线**：世界书批量注入 500 条（含响应式消毒深拷贝）2s 预算，捕获 O(n²) 退化而非精确计时。
+- Rust cargo test（字体文件名与 font_exists_in、URL 校验、StreamEvent serde 契约、StreamRegistry 行为、**Batcher 攒批状态机**——llm.rs 内联攒批逻辑抽出为纯同步状态机，时间以 Instant 注入免 tokio，覆盖攒批合并/水位整帧直发/窗口到点/空攒批安全；导出文件名清洗、共享 Client 重定向策略）。
 - E2E（@playwright/test + connectOverCDP 附加真实 WebView2，规避自带 Chromium 假信心）：金路径 spec + `scripts/e2e-dev.mjs`（CDP 端口启动）；本机 `npm run e2e` 为准入门槛，CI 无头环境起步 continue-on-error。
 - 浏览器冒烟（已执行多轮）：11 页面渲染、空白模板手填入库全流程、编辑器七 Tab、成员面板、美化变量工作台与多人群像预览、原始 JSON 抽屉、双主题切换、指南 sticky 几何实测。
 - 未覆盖（见 ROADMAP）：E2E 的 CI 无头稳定性、流式二进制通道（D2.2）、MVU 真机验收。
